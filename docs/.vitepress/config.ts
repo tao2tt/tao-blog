@@ -9,6 +9,7 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: 'Java 基础', link: '/java/basic/' },
       { text: 'Java 进阶', link: '/java/advanced/' },
+      { text: '工作实战', link: '/work/' },
       { text: 'AI 学习', link: '/ai/' },
       { text: '关于我', link: '/about/' }
     ],
@@ -26,6 +27,13 @@ export default defineConfig({
         { text: 'Redis', link: '/java/advanced/redis' },
         { text: '消息队列', link: '/java/advanced/mq' },
         { text: 'Elasticsearch', link: '/java/advanced/es' }
+      ],
+      '/work/': [
+        { text: '技术方案', link: '/work/tech-design' },
+        { text: '项目复盘', link: '/work/project-review' },
+        { text: '业务挑战', link: '/work/business-challenge' },
+        { text: '性能优化', link: '/work/performance' },
+        { text: '故障排查', link: '/work/troubleshooting' }
       ],
       '/ai/': [
         { text: 'AI 入门', link: '/ai/intro' },

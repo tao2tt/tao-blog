@@ -2,7 +2,7 @@
 layout: home
 hero:
   name: 涛哥的技术博客
-  text: Java 研发工程师的学习记录
+  text: Java 研发工程师的工作与学习记录
   tagline: 从 Java 基础到 AI 应用开发，记录成长之路
   actions:
     - theme: brand
@@ -21,4 +21,7 @@ features:
   - icon: 🤖
     title: AI 应用
     details: LLM、Prompt 工程、AI Agent，拥抱新技术
+  - icon: 💼
+    title: 工作实战
+    details: 项目复盘、技术方案、业务挑战，实战经验总结
 ---
