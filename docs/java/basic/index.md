@@ -8,8 +8,8 @@
 |------|------|----------|
 | [Java 核心语法](/java/basic/core) | 📝 学习中 | - |
 | [集合框架](/java/basic/collections) | 📝 学习中 | - |
-| 多线程与并发 | ⏳ 待开始 | - |
-| JVM 基础 | ⏳ 待开始 | - |
+| [多线程与并发](/java/basic/concurrency) | ⏳ 待开始 | - |
+| [JVM 基础](/java/basic/jvm) | ⏳ 待开始 | - |
 
 ## 学习计划
 

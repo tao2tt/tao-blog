@@ -6,12 +6,12 @@
 
 | 主题 | 状态 | 完成日期 |
 |------|------|----------|
-| Spring/SpringBoot | ⏳ 待开始 | - |
-| MyBatis | ⏳ 待开始 | - |
-| 数据库优化 | ⏳ 待开始 | - |
-| Redis | ⏳ 待开始 | - |
-| 消息队列 | ⏳ 待开始 | - |
-| Elasticsearch | ⏳ 待开始 | - |
+| [Spring/SpringBoot](/java/advanced/spring) | ⏳ 待开始 | - |
+| [MyBatis](/java/advanced/mybatis) | ⏳ 待开始 | - |
+| [数据库优化](/java/advanced/db) | ⏳ 待开始 | - |
+| [Redis](/java/advanced/redis) | ⏳ 待开始 | - |
+| [消息队列](/java/advanced/mq) | ⏳ 待开始 | - |
+| [Elasticsearch](/java/advanced/es) | ⏳ 待开始 | - |
 
 ## 学习计划
 
