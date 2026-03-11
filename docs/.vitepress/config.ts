@@ -9,8 +9,9 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: 'Java 基础', link: '/java/basic/' },
       { text: 'Java 进阶', link: '/java/advanced/' },
-      { text: '工作实战', link: '/work/' },
       { text: 'AI 学习', link: '/ai/' },
+      { text: '技术沉淀', link: '/work/' },
+      { text: '上线记录', link: '/deploy/' },
       { text: '关于我', link: '/about/' }
     ],
     sidebar: {
@@ -34,6 +35,10 @@ export default defineConfig({
         { text: '业务挑战', link: '/work/business-challenge' },
         { text: '性能优化', link: '/work/performance' },
         { text: '故障排查', link: '/work/troubleshooting' }
+      ],
+      '/deploy/': [
+        { text: '上线记录总览', link: '/deploy/' },
+        { text: '2026 年', link: '/deploy/2026/' }
       ],
       '/ai/': [
         { text: 'AI 入门', link: '/ai/intro' },
