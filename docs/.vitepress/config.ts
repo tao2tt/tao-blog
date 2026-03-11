@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   base: '/tao-blog/',
   title: '涛哥的技术博客',
-  description: 'Java 研发工程师的学习记录',
+  description: 'Java 研发工程师的工作和学习记录',
   themeConfig: {
     nav: [
       { text: '首页', link: '/' },
