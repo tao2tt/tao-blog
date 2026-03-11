@@ -22,6 +22,7 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: 'Java 基础', link: '/java/basic/' },
       { text: 'Java 进阶', link: '/java/advanced/' },
+      { text: '数据结构与算法', link: '/data-structure-algorithm/' },
       { text: 'AI 学习', link: '/ai/' },
       { text: '技术沉淀', link: '/work/' },
       { text: '上线记录', link: '/deploy/' },
@@ -110,6 +111,50 @@ export default defineConfig({
         { text: 'Prompt 工程', link: '/ai/prompt' },
         { text: 'AI Agent', link: '/ai/agent' },
         { text: '实战项目', link: '/ai/project' }
+      ],
+      '/data-structure-algorithm/': [
+        {
+          text: '基础篇',
+          collapsed: false,
+          items: [
+            { text: '学习路线', link: '/data-structure-algorithm/' },
+            { text: '复杂度分析', link: '/data-structure-algorithm/basic/complexity' },
+            { text: '数组与链表', link: '/data-structure-algorithm/basic/array-list' },
+            { text: '栈与队列', link: '/data-structure-algorithm/basic/stack-queue' },
+            { text: '哈希表', link: '/data-structure-algorithm/basic/hash-table' }
+          ]
+        },
+        {
+          text: '进阶篇',
+          collapsed: true,
+          items: [
+            { text: '树与二叉树', link: '/data-structure-algorithm/advanced/tree' },
+            { text: '堆与优先队列', link: '/data-structure-algorithm/advanced/heap' },
+            { text: '图论基础', link: '/data-structure-algorithm/advanced/graph' },
+            { text: '跳表与 B 树', link: '/data-structure-algorithm/advanced/skip-list-b-tree' }
+          ]
+        },
+        {
+          text: '算法篇',
+          collapsed: true,
+          items: [
+            { text: '排序算法', link: '/data-structure-algorithm/algorithm/sorting' },
+            { text: '查找算法', link: '/data-structure-algorithm/algorithm/searching' },
+            { text: '递归与分治', link: '/data-structure-algorithm/algorithm/recursion' },
+            { text: '贪心算法', link: '/data-structure-algorithm/algorithm/greedy' },
+            { text: '动态规划', link: '/data-structure-algorithm/algorithm/dp' },
+            { text: '回溯算法', link: '/data-structure-algorithm/algorithm/backtracking' }
+          ]
+        },
+        {
+          text: '实战篇',
+          collapsed: true,
+          items: [
+            { text: 'LeetCode 高频 100 道', link: '/data-structure-algorithm/practice/leetcode-100' },
+            { text: '业务场景应用', link: '/data-structure-algorithm/practice/business-scenario' },
+            { text: '性能优化案例', link: '/data-structure-algorithm/practice/performance' }
+          ]
+        }
       ],
       '/about/': [
         { text: '关于我', link: '/about/' },
