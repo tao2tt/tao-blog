@@ -377,15 +377,233 @@ List<User> users = userMapper.selectByIds(userIds);
 
 ## 📝 待办事项
 
-- [ ] ShardingSphere 配置
+## 6. 实战：订单库分库分表
+
+### 6.1 场景描述
+
+```
+订单表数据增长：
+- 单表数据：5000 万行
+- 日增数据：50 万行
+- 查询性能：严重下降（>5 秒）
+- 目标：分库分表，查询 < 100ms
+```
+
+### 6.2 分片方案
+
+```
+分片策略：
+- 分库：2 个库（ds0, ds1）
+- 分表：每个库 4 个表（t_order_0 ~ t_order_3）
+- 总分片：8 个表
+- 分片键：user_id（查询最多的字段）
+- 分片算法：user_id % 8
+```
+
+### 6.3 ShardingSphere 配置
+
+```yaml
+# application.yml
+spring:
+  shardingsphere:
+    datasource:
+      names: ds0,ds1
+      
+      # 数据源 0
+      ds0:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://192.168.1.10:3306/order_db_0?useSSL=false&serverTimezone=UTC
+        username: root
+        password: password
+        hikari:
+          connection-timeout: 30000
+          idle-timeout: 600000
+          max-lifetime: 1800000
+          maximum-pool-size: 20
+          minimum-idle: 5
+      
+      # 数据源 1
+      ds1:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://192.168.1.11:3306/order_db_1?useSSL=false&serverTimezone=UTC
+        username: root
+        password: password
+        hikari:
+          connection-timeout: 30000
+          idle-timeout: 600000
+          max-lifetime: 1800000
+          maximum-pool-size: 20
+          minimum-idle: 5
+    
+    rules:
+      sharding:
+        # 默认数据源
+        default-data-source-name: ds0
+        
+        # 默认数据库分片策略
+        default-database-strategy:
+          standard:
+            sharding-column: user_id
+            sharding-algorithm-name: database_inline
+        
+        # 表分片策略
+        tables:
+          t_order:
+            actual-data-nodes: ds$->{0..1}.t_order$->{0..3}
+            
+            database-strategy:
+              standard:
+                sharding-column: user_id
+                sharding-algorithm-name: database_inline
+            
+            table-strategy:
+              standard:
+                sharding-column: user_id
+                sharding-algorithm-name: table_inline
+            
+            key-generate-strategy:
+              column: id
+              key-generator-name: snowflake
+        
+        sharding-algorithms:
+          database_inline:
+            type: INLINE
+            props:
+              algorithm-expression: ds$->{user_id % 2}
+          
+          table_inline:
+            type: INLINE
+            props:
+              algorithm-expression: t_order$->{user_id % 4}
+        
+        key-generators:
+          snowflake:
+            type: SNOWFLAKE
+            props:
+              worker-id: 1
+        
+        binding-tables:
+          - t_order,t_order_item
+        
+        broadcast-tables:
+          - t_config,t_dictionary
+    
+    props:
+      sql-show: true
+      check-table-metadata-enabled: true
+```
+
+---
+
+## 7. 数据迁移方案
+
+### 7.1 灰度切换流程
+
+```
+阶段 1：双写（1 周）
+- 新库为主，老库为辅
+- 数据校验，确保一致
+
+阶段 2：灰度读（2 周）
+- 1% → 10% → 50% → 100% 流量读新库
+
+阶段 3：停止双写（1 天）
+- 停止写入老库
+- 观察新库稳定性
+
+阶段 4：下线老库（1 周后）
+- 备份老库数据
+- 下线老库
+```
+
+### 7.2 数据校验脚本
+
+```python
+#!/usr/bin/env python3
+# data_validation.py
+
+import pymysql
+
+OLD_DB = {'host': '192.168.1.10', 'user': 'root', 'password': 'password', 'database': 'order_db_old'}
+NEW_DB = {'host': '192.168.1.11', 'user': 'root', 'password': 'password', 'database': 'order_db_0'}
+
+def validate():
+    old_conn = pymysql.connect(**OLD_DB)
+    new_conn = pymysql.connect(**NEW_DB)
+    
+    old_cursor = old_conn.cursor()
+    new_cursor = new_conn.cursor()
+    
+    # 抽样校验
+    old_cursor.execute("SELECT id, COUNT(*) FROM t_order GROUP BY user_id % 8 LIMIT 1000")
+    
+    mismatch = 0
+    for row in old_cursor.fetchall():
+        order_id = row[0]
+        new_cursor.execute("SELECT id FROM t_order_0 WHERE id = %s", (order_id,))
+        if not new_cursor.fetchone():
+            mismatch += 1
+    
+    print(f"校验完成：总数 1000, 不一致={mismatch}")
+    
+    old_conn.close()
+    new_conn.close()
+
+if __name__ == '__main__':
+    validate()
+```
+
+---
+
+## 📝 实战清单
+
+**分片设计：**
+- [ ] 分片键选择（user_id/order_id）
+- [ ] 分片算法选择（取模/范围/哈希）
+- [ ] 分库数量规划
+- [ ] 分表数量规划
+- [ ] 扩容方案设计
+
+**ShardingSphere：**
+- [ ] 依赖引入
+- [ ] 数据源配置
+- [ ] 分片规则配置
 - [ ] 分片算法实现
-- [ ] 分布式 ID 生成
-- [ ] 数据迁移方案
-- [ ] 双写实现
-- [ ] 灰度切换实战
+- [ ] 主键生成器配置
+- [ ] 绑定表配置
+- [ ] 广播表配置
+
+**分布式 ID：**
+- [ ] 雪花算法实现
+- [ ] 号段模式实现
+- [ ] Redis 生成器
+- [ ] 时钟回拨处理
+
+**数据迁移：**
+- [ ] 双写方案实现
+- [ ] 数据校验脚本
+- [ ] 灰度切换方案
+- [ ] 回滚预案
+- [ ] 补偿机制
+
+**性能优化：**
+- [ ] 路由优化（避免全路由）
+- [ ] 分页优化（深分页）
+- [ ] 聚合查询优化
+- [ ] 跨库 JOIN 处理
+
+**监控运维：**
+- [ ] SQL 监控
+- [ ] 性能监控
+- [ ] 慢查询分析
+- [ ] 数据一致性监控
 
 ---
 
 **推荐资源：**
-- 📖 ShardingSphere 官方文档
+- 📖 ShardingSphere 官方文档：https://shardingsphere.apache.org
 - 🔗 GitHub：https://github.com/apache/shardingsphere
+- 📚 《分布式数据库架构及企业实践》
+- 🎥 B 站：ShardingSphere 分库分表实战
