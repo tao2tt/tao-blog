@@ -345,19 +345,268 @@ profiler stop
 
 ---
 
-## 📝 待办事项
+## 8. 实战：电商系统性能优化
 
-- [ ] 性能指标监控
-- [ ] 数据库优化实战
-- [ ] 多级缓存实现
-- [ ] 异步处理优化
-- [ ] 批量处理优化
-- [ ] JVM 调优
-- [ ] 全链路压测
+### 8.1 优化前性能分析
+
+**场景：** 电商大促，订单创建接口 QPS 仅 100，RT 2000ms
+
+```bash
+# 1. 压测
+wrk -t12 -c400 -d60s http://localhost:8080/api/orders
+
+# 结果：
+# Latency   2000ms (avg/stdev)
+# Req/Sec   100/s
+# 错误率：5%
+
+# 2. 链路追踪（SkyWalking）
+# - 订单创建：2000ms
+#   - 库存查询：800ms（Redis）
+#   - 订单插入：500ms（MySQL）
+#   - 用户查询：400ms（MySQL）
+#   - 发送消息：300ms（MQ）
+
+# 3. 数据库分析
+# - 慢查询日志：库存查询 800ms
+# - 锁等待：订单表行锁竞争
+
+# 4. JVM 分析
+# - Full GC 频繁：每分钟 2 次
+# - 堆内存不足：2G
+```
+
+### 8.2 优化方案
+
+**方案 1：缓存优化**
+
+```java
+// 优化前：每次查询数据库
+public Product getProduct(Long productId) {
+    return productMapper.selectById(productId);
+}
+
+// 优化后：多级缓存
+public Product getProduct(Long productId) {
+    String key = "product:" + productId;
+    
+    // L1: 本地缓存
+    Product product = localCache.get(key);
+    if (product != null) return product;
+    
+    // L2: Redis 缓存
+    product = redisTemplate.opsForValue().get(key);
+    if (product != null) {
+        localCache.put(key, product);
+        return product;
+    }
+    
+    // L3: 数据库
+    product = productMapper.selectById(productId);
+    redisTemplate.opsForValue().set(key, product, 30, TimeUnit.MINUTES);
+    localCache.put(key, product);
+    return product;
+}
+
+// 结果：库存查询从 800ms 降至 5ms
+```
+
+**方案 2：异步处理**
+
+```java
+// 优化前：同步发送消息
+public Order createOrder(Order order) {
+    // 1. 创建订单
+    orderMapper.insert(order);
+    
+    // 2. 扣减库存（同步）
+    inventoryClient.decrease(order.getProductId(), order.getCount());
+    
+    // 3. 发送消息（同步）
+    eventPublisher.publishEvent(new OrderCreatedEvent(order));
+    
+    return order;
+}
+
+// 优化后：异步处理
+public Order createOrder(Order order) {
+    // 1. 创建订单
+    orderMapper.insert(order);
+    
+    // 2. 扣减库存（异步）
+    CompletableFuture.runAsync(() -> {
+        inventoryClient.decrease(order.getProductId(), order.getCount());
+    });
+    
+    // 3. 发送消息（异步）
+    eventPublisher.publishEvent(new OrderCreatedEvent(order));
+    
+    return order;
+}
+
+// 结果：接口 RT 从 2000ms 降至 500ms
+```
+
+**方案 3：批量处理**
+
+```java
+// 优化前：逐条插入
+for (OrderItem item : items) {
+    orderItemMapper.insert(item);
+}
+
+// 优化后：批量插入
+orderItemMapper.insertBatch(items);
+
+// 结果：插入 100 条从 500ms 降至 50ms
+```
+
+**方案 4：数据库优化**
+
+```sql
+-- 优化前：无索引
+SELECT * FROM order_item WHERE order_id = 1001;
+
+-- 优化后：添加索引
+CREATE INDEX idx_order_id ON order_item(order_id);
+
+-- 优化前：深分页
+SELECT * FROM order ORDER BY create_time DESC LIMIT 100000, 10;
+
+-- 优化后：延迟关联
+SELECT o.* FROM order o
+INNER JOIN (SELECT id FROM order ORDER BY create_time DESC LIMIT 100000, 10) tmp
+ON o.id = tmp.id;
+
+-- 结果：查询从 2000ms 降至 50ms
+```
+
+### 8.3 优化后性能
+
+```bash
+# 压测结果
+wrk -t12 -c400 -d60s http://localhost:8080/api/orders
+
+# 结果：
+# Latency   200ms (avg/stdev)  # 从 2000ms 降至 200ms
+# Req/Sec   1000/s             # 从 100/s 提升至 1000/s
+# 错误率：0.1%                 # 从 5% 降至 0.1%
+
+# 优化效果：
+# - QPS 提升 10 倍
+# - RT 降低 90%
+# - 错误率降低 98%
+```
+
+---
+
+## 9. 性能基准
+
+### 9.1 接口性能标准
+
+| 接口类型 | RT 目标 | QPS 目标 |
+|----------|---------|----------|
+| 简单查询 | < 50ms | > 5000 |
+| 复杂查询 | < 200ms | > 1000 |
+| 写入接口 | < 100ms | > 2000 |
+| 批量接口 | < 500ms | > 500 |
+
+### 9.2 系统性能标准
+
+| 指标 | 目标值 | 告警阈值 |
+|------|--------|----------|
+| CPU 使用率 | < 60% | > 80% |
+| 内存使用率 | < 70% | > 85% |
+| 磁盘 IO | < 70% | > 90% |
+| 网络带宽 | < 60% | > 80% |
+| 数据库连接 | < 80% | > 90% |
+| Redis 连接 | < 80% | > 90% |
+
+### 9.3 压测脚本
+
+```bash
+#!/bin/bash
+# benchmark.sh
+
+URL=$1
+CONCURRENCY=${2:-100}
+DURATION=${3:-60}
+
+echo "=== 性能压测 ==="
+echo "URL: $URL"
+echo "并发数：$CONCURRENCY"
+echo "持续时间：${DURATION}s"
+echo ""
+
+wrk -t12 -c$CONCURRENCY -d${DURATION}s $URL
+
+echo ""
+echo "=== 性能指标 ==="
+echo "RT < 100ms: 优秀"
+echo "RT < 500ms: 良好"
+echo "RT < 1000ms: 合格"
+echo "RT > 1000ms: 需要优化"
+```
+
+---
+
+## 📝 实战清单
+
+**性能监控：**
+- [ ] Actuator 监控端点
+- [ ] Prometheus 指标采集
+- [ ] Grafana 可视化
+- [ ] 告警规则配置
+- [ ] 链路追踪（SkyWalking）
+
+**数据库优化：**
+- [ ] 慢查询分析
+- [ ] EXPLAIN 执行计划
+- [ ] 索引优化
+- [ ] SQL 优化
+- [ ] 分库分表
+- [ ] 读写分离
+
+**缓存优化：**
+- [ ] 多级缓存架构
+- [ ] 缓存穿透/击穿/雪崩
+- [ ] 缓存一致性
+- [ ] 热点 Key 处理
+- [ ] 大 Key 优化
+
+**异步优化：**
+- [ ] 线程池配置
+- [ ] CompletableFuture 异步
+- [ ] 事件驱动（@EventListener）
+- [ ] MQ 异步解耦
+
+**批量优化：**
+- [ ] 批量插入（1000 条/批）
+- [ ] 批量更新
+- [ ] 批量查询（避免 N+1）
+- [ ] 流式处理
+
+**JVM 调优：**
+- [ ] GC 调优
+- [ ] 堆内存调优
+- [ ] 元空间调优
+- [ ] GC 日志分析
+
+**全链路压测：**
+- [ ] 压测环境搭建
+- [ ] 压测数据准备
+- [ ] 压测脚本编写
+- [ ] 压测执行
+- [ ] 性能瓶颈分析
+- [ ] 优化方案实施
+- [ ] 压测报告输出
 
 ---
 
 **推荐资源：**
 - 📚 《高性能 MySQL》
 - 📚 《Redis 设计与实现》
-- 🔗 Arthas 官方文档
+- 📚 《Java 性能权威指南》
+- 🔗 Arthas 官方文档：https://arthas.aliyun.com
+- 🛠️ wrk 压测工具：https://github.com/wg/wrk
+- 🛠️ JMeter：https://jmeter.apache.org

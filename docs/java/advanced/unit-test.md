@@ -332,18 +332,407 @@ void testOrderCreation() {
 
 ---
 
-## 📝 待办事项
+## 6. 实战：完整测试案例
 
-- [ ] JUnit 5 基础
-- [ ] Mockito 使用
-- [ ] Spring Boot Test
-- [ ] 测试覆盖率配置
-- [ ] 集成测试实战
-- [ ] 测试规范制定
+### 6.1 Service 层测试
+
+```java
+@ExtendWith(SpringExtension.class)
+@SpringBootTest
+class UserServiceTest {
+    
+    @Autowired
+    private UserService userService;
+    
+    @MockBean
+    private UserMapper userMapper;
+    
+    @MockBean
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Test
+    @DisplayName("创建用户 - 成功")
+    void testCreateUser_success() {
+        // Given
+        User user = new User();
+        user.setUsername("test");
+        user.setEmail("test@example.com");
+        
+        when(userMapper.selectByUsername("test")).thenReturn(null);
+        when(userMapper.insert(any())).thenReturn(1);
+        
+        // When
+        User result = userService.createUser(user);
+        
+        // Then
+        assertNotNull(result.getId());
+        assertEquals("test", result.getUsername());
+        verify(userMapper, times(1)).insert(any());
+    }
+    
+    @Test
+    @DisplayName("创建用户 - 用户名已存在")
+    void testCreateUser_duplicateUsername() {
+        // Given
+        User user = new User();
+        user.setUsername("test");
+        
+        when(userMapper.selectByUsername("test"))
+            .thenReturn(new User("existing"));
+        
+        // When & Then
+        assertThrows(BusinessException.class, () -> {
+            userService.createUser(user);
+        });
+    }
+    
+    @Test
+    @DisplayName("查询用户 - 缓存命中")
+    void testGetUser_cacheHit() {
+        // Given
+        Long userId = 1L;
+        User cachedUser = new User("cached");
+        cachedUser.setId(userId);
+        
+        when(redisTemplate.opsForValue().get("user:" + userId))
+            .thenReturn(cachedUser);
+        
+        // When
+        User result = userService.getUser(userId);
+        
+        // Then
+        assertEquals(cachedUser, result);
+        verify(userMapper, never()).selectById(any());
+    }
+    
+    @Test
+    @DisplayName("查询用户 - 缓存未命中")
+    void testGetUser_cacheMiss() {
+        // Given
+        Long userId = 1L;
+        User dbUser = new User("db");
+        dbUser.setId(userId);
+        
+        when(redisTemplate.opsForValue().get("user:" + userId))
+            .thenReturn(null);
+        when(userMapper.selectById(userId)).thenReturn(dbUser);
+        
+        // When
+        User result = userService.getUser(userId);
+        
+        // Then
+        assertEquals(dbUser, result);
+        verify(redisTemplate).opsForValue()
+            .set(eq("user:" + userId), eq(dbUser), anyLong(), any());
+    }
+}
+```
+
+### 6.2 Controller 层测试
+
+```java
+@WebMvcTest(UserController.class)
+class UserControllerTest {
+    
+    @Autowired
+    private MockMvc mockMvc;
+    
+    @MockBean
+    private UserService userService;
+    
+    @Test
+    @DisplayName("创建用户接口 - 成功")
+    void testCreateUser_success() throws Exception {
+        // Given
+        User request = new User();
+        request.setUsername("test");
+        request.setEmail("test@example.com");
+        
+        User response = new User("test");
+        response.setId(1L);
+        
+        when(userService.createUser(any())).thenReturn(response);
+        
+        // When & Then
+        mockMvc.perform(post("/api/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(JsonUtils.toJson(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.code").value(200))
+            .andExpect(jsonPath("$.data.id").value(1))
+            .andExpect(jsonPath("$.data.username").value("test"));
+    }
+    
+    @Test
+    @DisplayName("查询用户接口 - 参数校验失败")
+    void testGetUser_invalidParam() throws Exception {
+        // When & Then
+        mockMvc.perform(get("/api/users/-1"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value(400));
+    }
+    
+    @Test
+    @DisplayName("查询用户列表 - 分页")
+    void testListUsers_pagination() throws Exception {
+        // Given
+        Page<User> page = new Page<>();
+        page.setRecords(Arrays.asList(
+            new User("user1"),
+            new User("user2")
+        ));
+        page.setTotal(100);
+        page.setCurrent(1);
+        page.setSize(10);
+        
+        when(userService.listUsers(any()))
+            .thenReturn(page);
+        
+        // When & Then
+        mockMvc.perform(get("/api/users")
+                .param("current", "1")
+                .param("size", "10"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.records").isArray())
+            .andExpect(jsonPath("$.data.total").value(100))
+            .andExpect(jsonPath("$.data.current").value(1))
+            .andExpect(jsonPath("$.data.size").value(10));
+    }
+}
+```
+
+### 6.3 集成测试
+
+```java
+@SpringBootTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@Testcontainers
+class OrderIntegrationTest {
+    
+    @Container
+    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
+        .withDatabaseName("test")
+        .withUsername("test")
+        .withPassword("test");
+    
+    @Container
+    static RedisContainer redis = new RedisContainer("redis:7-alpine");
+    
+    @DynamicPropertySource
+    static void configureTestProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", mysql::getJdbcUrl);
+        registry.add("spring.datasource.username", mysql::getUsername);
+        registry.add("spring.datasource.password", mysql::getPassword);
+        registry.add("spring.redis.host", redis::getHost);
+        registry.add("spring.redis.port", () -> redis.getMappedPort(6379).toString());
+    }
+    
+    @Autowired
+    private OrderService orderService;
+    
+    @Autowired
+    private OrderMapper orderMapper;
+    
+    @BeforeEach
+    void setUp() {
+        orderMapper.delete(null);
+    }
+    
+    @Test
+    @DisplayName("创建订单 - 完整流程")
+    void testCreateOrder_fullProcess() {
+        // Given
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setProductId(100L);
+        order.setCount(2);
+        order.setAmount(new BigDecimal("199.00"));
+        
+        // When
+        Order result = orderService.createOrder(order);
+        
+        // Then
+        assertNotNull(result.getId());
+        assertEquals(OrderStatus.PENDING, result.getStatus());
+        
+        // 验证数据库
+        Order dbOrder = orderMapper.selectById(result.getId());
+        assertNotNull(dbOrder);
+        assertEquals(OrderStatus.PENDING, dbOrder.getStatus());
+    }
+}
+```
+
+---
+
+## 7. 测试规范
+
+### 7.1 命名规范
+
+```java
+// 测试类：被测试类名 + Test
+class UserServiceTest { }
+class UserControllerTest { }
+
+// 测试方法：方法名_场景_预期结果
+@Test
+void createUser_validInput_success() { }
+
+@Test
+void createUser_duplicateEmail_throwsException() { }
+
+// 或使用 Given-When-Then 风格
+@Test
+void given_validUser_when_create_then_success() { }
+
+@Test
+void given_duplicateEmail_when_create_then_throwException() { }
+```
+
+### 7.2 测试结构
+
+```java
+@Test
+void testOrderCreation() {
+    // ========== Given（准备数据）==========
+    User user = createUser();
+    Product product = createProduct();
+    Order order = new Order();
+    order.setUser(user);
+    order.setProduct(product);
+    order.setCount(2);
+    
+    // ========== When（执行操作）==========
+    Order result = orderService.createOrder(order);
+    
+    // ========== Then（验证结果）==========
+    // 1. 验证返回值
+    assertNotNull(result.getId());
+    assertEquals(OrderStatus.PENDING, result.getStatus());
+    
+    // 2. 验证数据库
+    Order dbOrder = orderMapper.selectById(result.getId());
+    assertNotNull(dbOrder);
+    
+    // 3. 验证交互
+    verify(orderMapper, times(1)).insert(any());
+    verify(eventPublisher).publishEvent(any());
+}
+```
+
+### 7.3 测试覆盖率要求
+
+```xml
+<!-- pom.xml -->
+<plugin>
+    <groupId>org.jacoco</groupId>
+    <artifactId>jacoco-maven-plugin</artifactId>
+    <version>0.8.11</version>
+    <executions>
+        <execution>
+            <goals>
+                <goal>prepare-agent</goal>
+            </goals>
+        </execution>
+        <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals>
+                <goal>report</goal>
+            </goals>
+        </execution>
+        <execution>
+            <id>check</id>
+            <goals>
+                <goal>check</goal>
+            </goals>
+            <configuration>
+                <rules>
+                    <rule>
+                        <element>BUNDLE</element>
+                        <limits>
+                            <limit>
+                                <counter>INSTRUCTION</counter>
+                                <value>COVEREDRATIO</value>
+                                <minimum>0.80</minimum>  <!-- 行覆盖率 >= 80% -->
+                            </limit>
+                            <limit>
+                                <counter>BRANCH</counter>
+                                <value>COVEREDRATIO</value>
+                                <minimum>0.70</minimum>  <!-- 分支覆盖率 >= 70% -->
+                            </limit>
+                        </limits>
+                    </rule>
+                    <rule>
+                        <element>CLASS</element>
+                        <limits>
+                            <limit>
+                                <counter>LINE</counter>
+                                <value>COVEREDRATIO</value>
+                                <minimum>0.80</minimum>
+                            </limit>
+                        </limits>
+                        <excludes>
+                            <exclude>**/entity/*</exclude>
+                            <exclude>**/dto/*</exclude>
+                            <exclude>**/config/*</exclude>
+                        </excludes>
+                    </rule>
+                </rules>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+---
+
+## 📝 实战清单
+
+**JUnit 5：**
+- [ ] 基础注解（@Test/@BeforeEach/@AfterEach）
+- [ ] 断言（assertEquals/assertThrows）
+- [ ] 参数化测试（@ParameterizedTest）
+- [ ] 嵌套测试（@Nested）
+- [ ] 超时测试（@Timeout）
+
+**Mockito：**
+- [ ] Mock 对象创建（@Mock）
+- [ ] Spy 对象（@Spy）
+- [ ] 行为定义（when/thenReturn）
+- [ ] 参数匹配（any/eq/argThat）
+- [ ] 验证（verify/never/timeout）
+- [ ] 注入（@InjectMocks）
+
+**Spring Boot Test：**
+- [ ] @SpringBootTest 集成测试
+- [ ] @WebMvcTest Controller 测试
+- [ ] @DataJpaTest Repository 测试
+- [ ] @MockBean Mock Bean
+- [ ] MockMvc 请求测试
+- [ ] Testcontainers 容器测试
+
+**测试质量：**
+- [ ] 测试命名规范
+- [ ] AAA 结构（Given-When-Then）
+- [ ] 测试独立性（无依赖）
+- [ ] 测试可重复性
+- [ ] JaCoCo 覆盖率配置
+- [ ] CI 集成（测试失败阻断）
+
+**最佳实践：**
+- [ ] 测试私有方法（通过公共方法）
+- [ ] 不测试框架代码
+- [ ] 测试边界条件
+- [ ] 测试异常情况
+- [ ] 保持测试简洁
+- [ ] 定期重构测试
 
 ---
 
 **推荐资源：**
 - 📚 《JUnit in Action》
-- 📖 JUnit 5 官方文档
-- 🔗 Mockito 官方文档
+- 📚 《Effective Testing with JUnit 5》
+- 📖 JUnit 5 官方文档：https://junit.org/junit5/
+- 🔗 Mockito 官方文档：https://site.mockito.org
+- 🛠️ JaCoCo：https://www.eclemma.org/jacoco/

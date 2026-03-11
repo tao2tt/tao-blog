@@ -669,19 +669,411 @@ maxmemory-policy allkeys-lru  # 淘汰最近最少使用的 key
 
 ---
 
-## 📝 待办事项
+## 8. 实战：缓存架构设计
 
-- [ ] RDB/AOF 持久化配置
+### 8.1 多级缓存架构
+
+```java
+@Component
+public class MultiLevelCache {
+    
+    @Autowired
+    private CacheManager localCacheManager;  // Caffeine
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private UserMapper userMapper;
+    
+    /**
+     * 查询用户（三级缓存）
+     */
+    public User getUser(Long id) {
+        String key = "user:" + id;
+        
+        // L1: 本地缓存（Caffeine）
+        Cache cache = localCacheManager.getCache("user");
+        User user = cache.get(key, User.class);
+        if (user != null) {
+            log.debug("L1 cache hit: {}", id);
+            return user;
+        }
+        
+        // L2: Redis 缓存
+        user = (User) redisTemplate.opsForValue().get(key);
+        if (user != null) {
+            log.debug("L2 cache hit: {}", id);
+            // 回填 L1
+            cache.put(key, user);
+            return user;
+        }
+        
+        // L3: 数据库
+        log.debug("L3 database query: {}", id);
+        user = userMapper.selectById(id);
+        
+        if (user != null) {
+            // 写入 L2
+            redisTemplate.opsForValue().set(key, user, 30, TimeUnit.MINUTES);
+            // 回填 L1
+            cache.put(key, user);
+        } else {
+            // 缓存空值，防止穿透
+            redisTemplate.opsForValue().set(key, new NullUser(), 5, TimeUnit.MINUTES);
+        }
+        
+        return user;
+    }
+    
+    /**
+     * 更新用户（缓存一致性）
+     */
+    @Transactional
+    public void updateUser(User user) {
+        String key = "user:" + user.getId();
+        
+        // 1. 更新数据库
+        userMapper.updateById(user);
+        
+        // 2. 删除缓存（Cache Aside Pattern）
+        redisTemplate.delete(key);
+        localCacheManager.getCache("user").evict(key);
+        
+        // 3. 发送消息，通知其他节点清除本地缓存
+        eventPublisher.publishEvent(new CacheEvictEvent(key));
+    }
+}
+```
+
+### 8.2 缓存一致性方案
+
+```java
+/**
+ * 方案 1：延时双删
+ */
+@Service
+public class CacheConsistencyService1 {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private UserMapper userMapper;
+    
+    @Autowired
+    private TaskScheduler taskScheduler;
+    
+    @Transactional
+    public void updateUser(User user) {
+        String key = "user:" + user.getId();
+        
+        // 1. 删除缓存
+        redisTemplate.delete(key);
+        
+        // 2. 更新数据库
+        userMapper.updateById(user);
+        
+        // 3. 延时再次删除（防止主从同步延迟）
+        taskScheduler.schedule(
+            () -> redisTemplate.delete(key),
+            Instant.now().plusMillis(500)
+        );
+    }
+}
+
+/**
+ * 方案 2：监听 Binlog（Canal）
+ */
+@Component
+public class CanalListener {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @StreamListener("canal:user")
+    public void handleUserChange(UserChangeEvent event) {
+        String key = "user:" + event.getUserId();
+        
+        switch (event.getEventType()) {
+            case INSERT:
+            case UPDATE:
+                // 从数据库加载最新数据
+                User user = userMapper.selectById(event.getUserId());
+                redisTemplate.opsForValue().set(key, user, 30, TimeUnit.MINUTES);
+                break;
+            case DELETE:
+                redisTemplate.delete(key);
+                break;
+        }
+    }
+}
+
+/**
+ * 方案 3：消息队列最终一致性
+ */
+@Component
+public class MQCacheListener {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @RabbitListener(queues = "cache.evict.user")
+    public void handleCacheEvict(String key) {
+        // 删除缓存
+        redisTemplate.delete(key);
+    }
+}
+```
+
+### 8.3 热点 Key 发现与处理
+
+```java
+@Component
+public class HotKeyDetector {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    // 访问计数器
+    private ConcurrentHashMap<String, LongAdder> accessCounter = 
+        new ConcurrentHashMap<>();
+    
+    // 热点 Key 集合
+    private ConcurrentHashMap<String, Boolean> hotKeys = 
+        new ConcurrentHashMap<>();
+    
+    private ScheduledExecutorService scheduler = 
+        Executors.newScheduledThreadPool(1);
+    
+    @PostConstruct
+    public void init() {
+        // 每分钟统计一次
+        scheduler.scheduleAtFixedRate(this::analyzeHotKeys, 0, 1, TimeUnit.MINUTES);
+    }
+    
+    public void recordAccess(String key) {
+        LongAdder counter = accessCounter.computeIfAbsent(key, k -> new LongAdder());
+        counter.increment();
+    }
+    
+    private void analyzeHotKeys() {
+        Map<String, Long> stats = new HashMap<>();
+        
+        // 统计访问频率
+        for (Map.Entry<String, LongAdder> entry : accessCounter.entrySet()) {
+            long count = entry.getValue().sumThenReset();
+            if (count > 1000) {  // 阈值：每分钟 1000 次
+                stats.put(entry.getKey(), count);
+                hotKeys.put(entry.getKey(), true);
+            }
+        }
+        
+        // 上报监控
+        if (!stats.isEmpty()) {
+            log.warn("发现热点 Key: {}", stats);
+        }
+        
+        accessCounter.clear();
+    }
+    
+    public boolean isHotKey(String key) {
+        return hotKeys.containsKey(key);
+    }
+}
+
+// 使用
+@Service
+public class ProductService {
+    
+    @Autowired
+    private HotKeyDetector hotKeyDetector;
+    
+    @Autowired
+    private LocalCache localCache;
+    
+    public Product getProduct(Long id) {
+        String key = "product:" + id;
+        
+        // 热点 Key 优先查本地缓存
+        if (hotKeyDetector.isHotKey(key)) {
+            Product product = localCache.get(key);
+            if (product != null) {
+                return product;
+            }
+        }
+        
+        // 正常流程
+        Product product = redisTemplate.opsForValue().get(key);
+        if (product == null) {
+            product = productMapper.selectById(id);
+            redisTemplate.opsForValue().set(key, product, 30, TimeUnit.MINUTES);
+        }
+        
+        // 记录访问
+        hotKeyDetector.recordAccess(key);
+        
+        return product;
+    }
+}
+```
+
+---
+
+## 9. 生产环境配置
+
+### 9.1 Redis 配置模板
+
+```conf
+# /etc/redis/redis.conf
+
+# 基础配置
+bind 0.0.0.0
+port 6379
+timeout 300
+tcp-keepalive 60
+daemonize yes
+supervised systemd
+pidfile /var/run/redis/redis-server.pid
+loglevel notice
+logfile /var/log/redis/redis-server.log
+databases 16
+
+# 安全配置
+requirepass YourStrongPassword123!
+rename-command FLUSHDB ""
+rename-command FLUSHALL ""
+rename-command DEBUG ""
+
+# 内存管理
+maxmemory 4gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+
+# 持久化（混合持久化）
+save 900 1
+save 300 10
+save 60 10000
+
+stop-writes-on-bgsave-error yes
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+dir /var/lib/redis
+
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+
+# 主从复制
+# replicaof 192.168.1.100 6379
+# masterauth YourMasterPassword
+replica-read-only yes
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+repl-ping-replica-period 10
+repl-timeout 60
+
+# 集群配置
+# cluster-enabled yes
+# cluster-config-file nodes.conf
+# cluster-node-timeout 5000
+# cluster-replica-validity-factor 10
+# cluster-migration-barrier 1
+# cluster-require-full-coverage yes
+
+# 慢查询
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+
+# 监控
+latency-monitor-threshold 100
+```
+
+### 9.2 监控告警
+
+```yaml
+# Prometheus 配置
+scrape_configs:
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    metrics_path: /metrics
+
+# Grafana 告警规则
+groups:
+  - name: redis
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        annotations:
+          summary: "Redis 实例 {{ $labels.instance }} 宕机"
+      
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        annotations:
+          summary: "Redis 内存使用率超过 90%"
+      
+      - alert: RedisSlowLog
+        expr: increase(redis_slowlog_length[5m]) > 10
+        annotations:
+          summary: "Redis 慢查询增多"
+```
+
+---
+
+## 📝 实战清单
+
+**基础环境：**
+- [ ] Redis 安装与配置
+- [ ] 持久化配置（RDB+AOF 混合）
+- [ ] 内存淘汰策略配置
+- [ ] 安全加固（密码、命令重命名）
+
+**高可用：**
 - [ ] 主从复制搭建
-- [ ] 哨兵模式配置
-- [ ] Redis Cluster 集群
-- [ ] 分布式锁实现
-- [ ] 缓存问题解决方案
-- [ ] 性能优化实战
+- [ ] 哨兵模式配置（3 哨兵 +2 从）
+- [ ] Redis Cluster 集群（6 节点）
+- [ ] 客户端集群配置
+
+**缓存开发：**
+- [ ] 基础 CRUD 操作
+- [ ] 多级缓存实现（Caffeine+Redis）
+- [ ] 缓存穿透/击穿/雪崩解决方案
+- [ ] 缓存一致性方案（双删/Canal/MQ）
+
+**分布式锁：**
+- [ ] 基础分布式锁实现
+- [ ] 可重入锁实现
+- [ ] 看门狗自动续期
+- [ ] Redisson 集成
+- [ ] Redlock 红锁算法
+
+**性能优化：**
+- [ ] 热点 Key 发现与处理
+- [ ] 大 Key 排查与优化
+- [ ] 批量操作（Pipeline）
+- [ ] Lua 脚本优化
+
+**监控运维：**
+- [ ] Redis Exporter 部署
+- [ ] Prometheus + Grafana 监控
+- [ ] 慢查询分析
+- [ ] 内存分析
+- [ ] 告警规则配置
 
 ---
 
 **推荐资源：**
 - 📚 《Redis 设计与实现》
-- 📖 Redis 官方文档
-- 🔗 Redis 中文社区
+- 📚 《Redis 深度历险：核心原理与应用实践》
+- 📖 Redis 官方文档：https://redis.io
+- 🔗 Redis 中文社区：http://redis.cn
+- 🎥 B 站：Redis 核心原理与实战

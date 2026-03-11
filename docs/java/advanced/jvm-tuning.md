@@ -295,19 +295,340 @@ thread -b  # 检测死锁
 
 ---
 
-## 📝 待办事项
+## 8. 实战案例
 
-- [ ] JVM 内存结构理解
-- [ ] GC 算法原理
-- [ ] JVM 参数配置
-- [ ] 监控工具使用
-- [ ] Arthas 实战
-- [ ] OOM 排查
-- [ ] 性能调优实战
+### 8.1 OOM 排查实战
+
+**场景：** 生产环境应用频繁 Full GC，最终 OOM 宕机
+
+**排查步骤：**
+
+```bash
+# 1. 查看 GC 日志
+grep "Full GC" gc.log | tail -50
+
+# 结果分析：
+# - Full GC 频率从 1 小时/次 变为 5 分钟/次
+# - GC 后老年代使用率仍 > 90%
+# - 判断存在内存泄漏
+
+# 2. 生成堆转储
+jmap -dump:format=b,file=/tmp/heap.hprof <pid>
+
+# 3. 使用 MAT 分析
+# - 打开 heap.hprof
+# - Histogram: 查看对象数量
+# - Dominator Tree: 查看占用最大的对象
+# - 发现：com.example.Cache.items 占用 2GB，100 万个对象
+
+# 4. 定位代码
+private static Map<String, byte[]> cache = new ConcurrentHashMap<>();
+
+public void put(String key, byte[] data) {
+    cache.put(key, data);  // 只增不减，无过期机制
+}
+
+# 5. 修复方案
+// 方案 1：使用 Caffeine 缓存（带过期策略）
+private Cache<String, byte[]> cache = Caffeine.newBuilder()
+    .maximumSize(10000)
+    .expireAfterWrite(1, TimeUnit.HOURS)
+    .build();
+
+// 方案 2：定期清理
+@Scheduled(fixedRate = 3600000)
+public void cleanup() {
+    long now = System.currentTimeMillis();
+    cache.entrySet().removeIf(e -> now - e.getValue().createTime > 3600000);
+}
+```
+
+### 8.2 CPU 过高排查实战
+
+**场景：** 生产环境 CPU 持续 100%
+
+```bash
+# 1. 查看进程
+top
+# PID USER    PR  NI  VIRT  RES  SHR S  %CPU %MEM  TIME+ COMMAND
+# 1234 admin   20   0  4.5g 2.1g  25m R  98.5 12.3  10:20.15 java
+
+# 2. 查看线程
+top -Hp 1234
+#   PID USER    PR  NI  VIRT  RES  SHR S  %CPU %MEM  TIME+ COMMAND
+#  1235 admin   20   0  4.5g 2.1g  25m R  45.2 12.3   2:10.20 java
+#  1236 admin   20   0  4.5g 2.1g  25m R  42.1 12.3   2:05.15 java
+
+# 3. 转 16 进制
+printf "%x\n" 1235  # 输出：4d3
+
+# 4. 查看线程栈
+jstack 1234 | grep -A 20 "0x4d3"
+
+# 输出：
+"http-nio-8080-exec-5" #0x4d3 daemon prio=5 os_prio=0 tid=0x00007f8c0c002800 nid=0x4d3 runnable [0x00007f8c1c5fe000]
+   java.lang.Thread.State: RUNNABLE
+        at com.example.OrderService.calculatePrice(OrderService.java:125)
+        at com.example.OrderService.createOrder(OrderService.java:80)
+        ...
+
+# 5. 查看代码
+# 发现：死循环/复杂计算/正则回溯
+
+# 问题代码：
+public BigDecimal calculatePrice(Order order) {
+    while (true) {  // 死循环
+        if (checkPrice(order)) {
+            break;
+        }
+    }
+    // ...
+}
+
+// 或者：
+public boolean isValid(String input) {
+    return input.matches("(a+)+b");  // 正则回溯
+}
+
+# 6. 修复
+public BigDecimal calculatePrice(Order order) {
+    int maxRetries = 10;
+    for (int i = 0; i < maxRetries; i++) {
+        if (checkPrice(order)) {
+            break;
+        }
+        Thread.sleep(100);
+    }
+    // ...
+}
+```
+
+### 8.3 死锁排查实战
+
+```bash
+# 1. 查看线程栈
+jstack <pid>
+
+# 输出：
+Found one Java-level deadlock:
+=============================
+"thread-1":
+  waiting to lock monitor 0x00007f8c0c003000 (object 0x00000000c0020000, a java.lang.Object),
+  which is held by "thread-2"
+"thread-2":
+  waiting to lock monitor 0x00007f8c0c002800 (object 0x00000000c0010000, a java.lang.Object),
+  which is held by "thread-1"
+
+# 2. 使用 Arthas
+thread -b
+
+# 输出：
+Found one deadlocked thread:
+
+Thread "thread-1":
+    at com.example.Service.methodA(Service.java:50)
+    - waiting to lock <0x00000000c0020000> (a java.lang.Object)
+    - locked <0x00000000c0010000> (a java.lang.Object)
+
+Thread "thread-2":
+    at com.example.Service.methodB(Service.java:80)
+    - waiting to lock <0x00000000c0010000> (a java.lang.Object)
+    - locked <0x00000000c0020000> (a java.lang.Object)
+
+# 3. 问题代码
+private Object lock1 = new Object();
+private Object lock2 = new Object();
+
+public void methodA() {
+    synchronized (lock1) {
+        Thread.sleep(100);
+        synchronized (lock2) { }
+    }
+}
+
+public void methodB() {
+    synchronized (lock2) {
+        Thread.sleep(100);
+        synchronized (lock1) { }
+    }
+}
+
+# 4. 修复：固定锁顺序
+public void methodA() {
+    synchronized (lock1) {
+        Thread.sleep(100);
+        synchronized (lock2) { }
+    }
+}
+
+public void methodB() {
+    synchronized (lock1) {  // 固定先锁 lock1
+        Thread.sleep(100);
+        synchronized (lock2) { }
+    }
+}
+```
+
+### 8.4 GC 调优实战
+
+**场景：** 电商大促期间，要求 GC 停顿 < 100ms
+
+**调优过程：**
+
+```bash
+# 1. 初始配置（Parallel GC）
+-XX:+UseParallelGC
+-Xms4g
+-Xmx4g
+
+# 问题：Full GC 停顿 500ms+
+
+# 2. 改用 G1 GC
+-XX:+UseG1GC
+-Xms4g
+-Xmx4g
+-XX:MaxGCPauseMillis=200
+-XX:G1HeapRegionSize=16m
+-XX:InitiatingHeapOccupancyPercent=45
+
+# 结果：Full GC 减少，但 Young GC 停顿仍 > 100ms
+
+# 3. 优化新生代
+-XX:+UseG1GC
+-Xms4g
+-Xmx4g
+-Xmn2g                        # 固定新生代大小
+-XX:G1MaxNewSizePercent=50    # 新生代最大 50%
+-XX:MaxGCPauseMillis=100
+-XX:G1HeapRegionSize=8m       # 更小的 Region
+
+# 结果：Young GC 停顿 50-80ms，满足要求
+
+# 4. 监控验证
+jstat -gcutil <pid> 1000
+
+# 输出：
+ S0     S1     E      O      M     CCS    YGC     YGCT    FGC    FGCT   GCT
+ 0.00   0.00  45.23  62.15  98.45  99.12  1250    12.500     5    0.500  13.000
+
+# 分析：
+# - E（Eden）使用率 45%，正常
+# - O（Old）使用率 62%，正常
+# - YGC 频率：1250 次 / 运行时间，正常
+# - FGC 仅 5 次，很好
+```
+
+---
+
+## 9. 生产环境配置
+
+### 9.1 推荐 JVM 参数
+
+```bash
+# 通用配置（4G 堆）
+java -Xms4g -Xmx4g \
+     -XX:+UseG1GC \
+     -XX:MaxGCPauseMillis=200 \
+     -XX:G1HeapRegionSize=16m \
+     -XX:InitiatingHeapOccupancyPercent=45 \
+     -XX:+ParallelRefProcEnabled \
+     -XX:+UseStringDeduplication \
+     -XX:MaxTenuringThreshold=10 \
+     -XX:+HeapDumpOnOutOfMemoryError \
+     -XX:HeapDumpPath=/data/logs/heapdump.hprof \
+     -Xlog:gc*:file=/data/logs/gc.log:time,uptime,level,tags \
+     -XX:+UseGCLogFileRotation \
+     -XX:NumberOfGCLogFiles=5 \
+     -XX:GCLogFileSize=50M \
+     -XX:ErrorFile=/data/logs/hs_err_pid%p.log \
+     -XX:OnOutOfMemoryError="kill -9 %p" \
+     -jar app.jar
+
+# 低延迟配置（<50ms 停顿）
+-XX:+UseZGC \
+-Xms4g \
+-Xmx4g \
+-XX:ConcurrentGCThreads=4 \
+-XX:ZCollectionInterval=5
+
+# 高吞吐配置
+-XX:+UseParallelGC \
+-Xms4g \
+-Xmx4g \
+-XX:MaxGCPauseMillis=0 \
+-XX:GCTimeRatio=99
+```
+
+### 9.2 监控脚本
+
+```bash
+#!/bin/bash
+# jvm-monitor.sh
+
+PID=$1
+
+echo "=== JVM Info ==="
+jinfo -flags $PID | grep -E "Xmx|Xms|UseG1GC|UseZGC"
+
+echo ""
+echo "=== Memory Usage ==="
+jstat -gcutil $PID 1000 5
+
+echo ""
+echo "=== Thread Info ==="
+jstack $PID | grep "java.lang.Thread.State" | sort | uniq -c
+
+echo ""
+echo "=== Top Threads ==="
+top -Hp $PID -b -n 1 | head -20
+```
+
+---
+
+## 📝 实战清单
+
+**理论基础：**
+- [ ] JVM 内存结构（堆/栈/元空间）
+- [ ] 对象分配与回收流程
+- [ ] GC 算法（标记 - 清除/复制/标记 - 整理）
+- [ ] 垃圾回收器对比（CMS/G1/ZGC）
+
+**参数配置：**
+- [ ] 堆内存配置（-Xms/-Xmx）
+- [ ] 新生代配置（-Xmn/-XX:NewRatio）
+- [ ] G1 参数配置
+- [ ] GC 日志配置
+
+**监控工具：**
+- [ ] jps/jstat/jmap/jstack 使用
+- [ ] JConsole/JVisualVM 使用
+- [ ] Arthas 实战（dashboard/trace/heapdump）
+- [ ] GC 日志分析工具（GCViewer/GCEasy）
+
+**问题排查：**
+- [ ] OOM 排查流程
+- [ ] CPU 过高排查
+- [ ] 死锁排查
+- [ ] 内存泄漏排查
+- [ ] 频繁 GC 排查
+
+**性能调优：**
+- [ ] GC 调优（低延迟/高吞吐）
+- [ ] 堆大小调优
+- [ ] 元空间调优
+- [ ] 直接内存调优
+
+**生产就绪：**
+- [ ] JVM 参数标准化
+- [ ] GC 日志分析告警
+- [ ] OOM 自动重启
+- [ ] 监控指标接入（Prometheus）
 
 ---
 
 **推荐资源：**
-- 📚 《深入理解 Java 虚拟机》
-- 📚 《实战 Java 高并发程序设计》
-- 🔗 Arthas 官方文档
+- 📚 《深入理解 Java 虚拟机》（周志明）
+- 📚 《Java 性能权威指南》
+- 📖 Oracle JVM 文档：https://docs.oracle.com/javase/17/vm/
+- 🔗 Arthas 官方文档：https://arthas.aliyun.com
+- 🛠️ GC 日志分析：https://gceasy.io

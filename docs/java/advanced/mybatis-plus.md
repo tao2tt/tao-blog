@@ -599,19 +599,272 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
 ---
 
-## 📝 待办事项
+## 11. 实战：企业级应用集成
 
-- [ ] MyBatis-Plus 基础配置
-- [ ] CRUD 操作实战
-- [ ] 条件构造器使用
+### 11.1 完整项目结构
+
+```
+mall-admin/
+├── src/main/java/com/example/mall/
+│   ├── common/                    # 公共模块
+│   │   ├── config/               # 配置类
+│   │   │   ├── MybatisPlusConfig.java
+│   │   │   ├── DataSourceConfig.java
+│   │   │   └── RedisConfig.java
+│   │   ├── aspect/               # AOP 切面
+│   │   │   ├── DataScopeAspect.java
+│   │   │   └── OperationLogAspect.java
+│   │   └── exception/            # 异常处理
+│   ├── modules/
+│   │   ├── user/                 # 用户模块
+│   │   │   ├── controller/
+│   │   │   ├── service/
+│   │   │   ├── mapper/
+│   │   │   └── entity/
+│   │   ├── order/                # 订单模块
+│   │   └── product/              # 商品模块
+│   └── MallApplication.java
+└── src/main/resources/
+    ├── mapper/                   # XML 映射
+    └── application.yml
+```
+
+### 11.2 数据权限（数据范围）
+
+```java
+// 数据权限注解
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface DataScope {
+    // 部门别名
+    String deptAlias() default "";
+    // 用户别名
+    String userAlias() default "";
+}
+
+// 数据权限切面
+@Aspect
+@Component
+public class DataScopeAspect {
+    
+    @Around("@annotation(controllerDataScope)")
+    public Object dataScope(ProceedingJoinPoint point, DataScope controllerDataScope) throws Throwable {
+        // 获取当前用户
+        LoginUser user = SecurityUtils.getLoginUser();
+        
+        // 构建数据权限 SQL
+        String sqlScope = getDataScope(user, controllerDataScope);
+        
+        // 添加到 BaseParams
+        BaseParams baseParams = new BaseParams();
+        baseParams.setDataScope(sqlScope);
+        
+        // 传递给 Mapper
+        return point.proceed();
+    }
+    
+    private String getDataScope(LoginUser user, DataScope dataScope) {
+        // 超级管理员返回空（无限制）
+        if (user.isAdmin()) {
+            return "";
+        }
+        
+        // 根据角色数据范围生成 SQL
+        StringBuilder sqlString = new StringBuilder();
+        for (Role role : user.getRoles()) {
+            switch (role.getDataScope()) {
+                case "1":  // 全部数据
+                    return "";
+                case "2":  // 本部门及以下
+                    sqlString.append(String.format(
+                        " OR dept_id IN (SELECT id FROM sys_dept WHERE dept_id = %d OR find_in_set(%d, ancestors))",
+                        role.getDeptId(), role.getDeptId()));
+                    break;
+                case "3":  // 本部门
+                    sqlString.append(String.format(
+                        " OR dept_id = %d", role.getDeptId()));
+                    break;
+                case "4":  // 仅本人
+                    sqlString.append(String.format(
+                        " OR user_id = %d", user.getUserId()));
+                    break;
+            }
+        }
+        
+        return sqlString.length() > 0 ? " AND (" + sqlString.substring(4) + ")" : "";
+    }
+}
+
+// 使用示例
+@DataScope(deptAlias = "d", userAlias = "u")
+public List<User> selectUserList(User user);
+```
+
+### 11.3 多数据源配置
+
+```java
+@Configuration
+public class DataSourceConfig {
+    
+    @Bean
+    @ConfigurationProperties("spring.datasource.dynamic.master")
+    public DataSource masterDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+    
+    @Bean
+    @ConfigurationProperties("spring.datasource.dynamic.slave")
+    public DataSource slaveDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+    
+    @Bean
+    public DataSource dynamicDataSource(DataSource master, DataSource slave) {
+        Map<Object, Object> targetDataSources = new HashMap<>();
+        targetDataSources.put("master", master);
+        targetDataSources.put("slave", slave);
+        
+        DynamicDataSource dataSource = new DynamicDataSource();
+        dataSource.setTargetDataSources(targetDataSources);
+        dataSource.setDefaultTargetDataSource(master);
+        
+        return dataSource;
+    }
+}
+
+// 多数据源切换注解
+@Target({ElementType.METHOD, ElementType.TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface DataSource {
+    String value() default "master";
+}
+
+// 切换切面
+@Aspect
+@Component
+public class DataSourceAspect {
+    
+    @Around("@annotation(dataSource)")
+    public Object around(ProceedingJoinPoint point, DataSource dataSource) throws Throwable {
+        String dsName = dataSource.value();
+        try {
+            DynamicDataSourceContextHolder.setDataSource(dsName);
+            return point.proceed();
+        } finally {
+            DynamicDataSourceContextHolder.clearDataSource();
+        }
+    }
+}
+
+// 使用示例
+@DataSource("slave")  // 读操作走从库
+public List<Order> selectOrders() {
+    return orderMapper.selectList(null);
+}
+
+@DataSource("master")  // 写操作走主库
+public int insertOrder(Order order) {
+    return orderMapper.insert(order);
+}
+```
+
+### 11.4 批量操作优化
+
+```java
+@Service
+public class UserServiceImpl extends ServiceImpl<UserMapper, User> 
+    implements UserService {
+    
+    /**
+     * 批量插入（分批处理）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean batchInsert(List<User> userList) {
+        if (CollectionUtils.isEmpty(userList)) {
+            return false;
+        }
+        
+        int batchSize = 1000;
+        int size = userList.size();
+        
+        for (int i = 0; i < size; i += batchSize) {
+            List<User> batch = userList.subList(i, Math.min(i + batchSize, size));
+            baseMapper.insertBatch(batch);
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 批量更新（使用 ExecuteBatch）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean batchUpdate(List<User> userList) {
+        if (CollectionUtils.isEmpty(userList)) {
+            return false;
+        }
+        
+        SqlSession sqlSession = sqlSessionTemplate.getSqlSessionFactory()
+            .openSession(ExecutorType.BATCH);
+        
+        try {
+            UserMapper mapper = sqlSession.getMapper(UserMapper.class);
+            for (User user : userList) {
+                mapper.updateById(user);
+            }
+            sqlSession.flushStatements();
+        } finally {
+            sqlSession.close();
+        }
+        
+        return true;
+    }
+}
+```
+
+---
+
+## 📝 实战清单
+
+**基础配置：**
+- [ ] MyBatis-Plus 依赖引入
+- [ ] 数据库连接配置
 - [ ] 分页插件配置
-- [ ] 自动填充实现
-- [ ] 乐观锁实战
+- [ ] 自动填充配置
+- [ ] 乐观锁插件配置
+- [ ] 逻辑删除配置
+
+**代码开发：**
+- [ ] 实体类编写（@TableName、@TableId 等）
+- [ ] Mapper 接口继承 BaseMapper
+- [ ] Service 接口继承 IService
+- [ ] ServiceImpl 继承 ServiceImpl
+- [ ] Controller 编写
+
+**高级功能：**
+- [ ] 条件构造器（LambdaQueryWrapper）
+- [ ] 自定义全局方法
+- [ ] 自动填充（MetaObjectHandler）
+- [ ] 乐观锁实现
+- [ ] 逻辑删除
+- [ ] 枚举类型处理器
+
+**性能优化：**
+- [ ] 批量插入（1000 条/批）
+- [ ] 批量更新（ExecuteBatch）
+- [ ] 防止 N+1 查询
+- [ ] 二级缓存配置
+- [ ] 多数据源配置
+
+**扩展功能：**
 - [ ] 代码生成器使用
-- [ ] 完整项目集成
+- [ ] 数据权限切面
+- [ ] 多租户支持
+- [ ] 动态表名支持
 
 ---
 
 **推荐资源：**
 - 📖 MyBatis-Plus 官方文档：https://baomidou.com
 - 🔗 GitHub：https://github.com/baomidou/mybatis-plus
+- 🎥 B 站：MyBatis-Plus 从入门到精通

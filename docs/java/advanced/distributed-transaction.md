@@ -334,18 +334,361 @@ CREATE UNIQUE INDEX idx_order_id ON order_item(order_id);
 
 ---
 
-## 📝 待办事项
+## 8. 实战：电商分布式事务
 
-- [ ] CAP/BASE 理论理解
-- [ ] 2PC 原理
-- [ ] TCC 实现
-- [ ] 本地消息表实战
-- [ ] Seata 使用
+### 8.1 场景：下单流程
+
+```
+用户下单 → 扣减库存 → 创建订单 → 扣减余额 → 发送消息
+   ↓          ↓           ↓          ↓          ↓
+  订单服务   库存服务     订单服务    余额服务    消息服务
+```
+
+### 8.2 方案选型
+
+| 场景 | 一致性要求 | 性能要求 | 推荐方案 |
+|------|------------|----------|----------|
+| 支付 | 强一致 | 中 | Seata AT |
+| 下单 | 最终一致 | 高 | 本地消息表 |
+| 退款 | 强一致 | 中 | TCC |
+| 积分 | 最终一致 | 高 | MQ 事务消息 |
+
+### 8.3 Seata AT 模式实战
+
+```java
+// 订单服务
+@Service
+public class OrderServiceImpl implements OrderService {
+    
+    @Autowired
+    private OrderMapper orderMapper;
+    
+    @Autowired
+    private InventoryClient inventoryClient;
+    
+    @Autowired
+    private AccountClient accountClient;
+    
+    /**
+     * 创建订单（全局事务）
+     */
+    @GlobalTransactional(timeoutMills = 300000, name = "create-order-tx")
+    @Override
+    public Order createOrder(Order order) {
+        log.info("开始创建订单：{}", order.getId());
+        
+        // 1. 创建订单
+        orderMapper.insert(order);
+        
+        // 2. 扣减库存（远程调用）
+        inventoryClient.decrease(order.getProductId(), order.getCount());
+        
+        // 3. 扣减余额（远程调用）
+        accountClient.decrease(order.getUserId(), order.getAmount());
+        
+        log.info("订单创建成功：{}", order.getId());
+        return order;
+    }
+}
+
+// 库存服务
+@Service
+public class InventoryServiceImpl implements InventoryService {
+    
+    @Autowired
+    private InventoryMapper inventoryMapper;
+    
+    /**
+     * 扣减库存（分支事务）
+     */
+    @Override
+    public void decrease(Long productId, Integer count) {
+        log.info("扣减库存：productId={}, count={}", productId, count);
+        
+        int rows = inventoryMapper.decrease(productId, count);
+        if (rows == 0) {
+            throw new BusinessException("库存不足");
+        }
+        
+        log.info("库存扣减成功：productId={}, count={}", productId, count);
+    }
+}
+
+// 余额服务
+@Service
+public class AccountServiceImpl implements AccountService {
+    
+    @Autowired
+    private AccountMapper accountMapper;
+    
+    /**
+     * 扣减余额（分支事务）
+     */
+    @Override
+    public void decrease(Long userId, BigDecimal amount) {
+        log.info("扣减余额：userId={}, amount={}", userId, amount);
+        
+        int rows = accountMapper.decrease(userId, amount);
+        if (rows == 0) {
+            throw new BusinessException("余额不足");
+        }
+        
+        log.info("余额扣减成功：userId={}, amount={}", userId, amount);
+    }
+}
+```
+
+### 8.4 本地消息表实战
+
+```java
+@Service
+public class OrderServiceImpl implements OrderService {
+    
+    @Autowired
+    private OrderMapper orderMapper;
+    
+    @Autowired
+    private MessageMapper messageMapper;
+    
+    @Autowired
+    private RocketMQTemplate rocketMQTemplate;
+    
+    /**
+     * 创建订单 + 本地消息表
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public Order createOrder(Order order) {
+        // 1. 创建订单
+        orderMapper.insert(order);
+        
+        // 2. 写入本地消息表
+        Message message = new Message();
+        message.setId(UUID.randomUUID().toString());
+        message.setTopic("order_created");
+        message.setTag("create");
+        message.setBody(JsonUtils.toJson(order));
+        message.setStatus("PENDING");
+        message.setRetryCount(0);
+        message.setMaxRetry(3);
+        message.setNextRetryTime(LocalDateTime.now().plusSeconds(10));
+        messageMapper.insert(message);
+        
+        log.info("订单创建成功，本地消息已记录：orderId={}", order.getId());
+        return order;
+    }
+}
+
+/**
+ * 消息扫描器（定时任务）
+ */
+@Component
+public class MessageScanner {
+    
+    @Autowired
+    private MessageMapper messageMapper;
+    
+    @Autowired
+    private RocketMQTemplate rocketMQTemplate;
+    
+    /**
+     * 每 5 秒扫描一次
+     */
+    @Scheduled(fixedRate = 5000)
+    public void scan() {
+        log.info("开始扫描待发送消息");
+        
+        // 查询待发送消息
+        List<Message> messages = messageMapper.selectPending(100);
+        
+        for (Message message : messages) {
+            try {
+                // 发送消息
+                rocketMQTemplate.send(message.getTopic() + ":" + message.getTag(),
+                    MessageBuilder.withPayload(message.getBody()).build());
+                
+                // 更新状态
+                message.setStatus("SENT");
+                message.setSendTime(LocalDateTime.now());
+                messageMapper.update(message);
+                
+                log.info("消息发送成功：messageId={}", message.getId());
+                
+            } catch (Exception e) {
+                log.error("消息发送失败：messageId={}", message.getId(), e);
+                
+                // 更新重试次数
+                message.setRetryCount(message.getRetryCount() + 1);
+                if (message.getRetryCount() >= message.getMaxRetry()) {
+                    message.setStatus("FAILED");
+                    log.error("消息发送失败，达到最大重试次数：messageId={}", message.getId());
+                } else {
+                    // 指数退避
+                    long delay = (long) Math.pow(2, message.getRetryCount()) * 10;
+                    message.setNextRetryTime(LocalDateTime.now().plusSeconds(delay));
+                }
+                messageMapper.update(message);
+            }
+        }
+    }
+}
+
+/**
+ * 消息消费者
+ */
+@Component
+public class OrderMessageListener {
+    
+    @Autowired
+    private InventoryService inventoryService;
+    
+    @RabbitListener(queues = "order.created")
+    public void handleOrderCreated(String message) {
+        Order order = JsonUtils.fromJson(message, Order.class);
+        
+        // 幂等检查
+        if (inventoryService.isProcessed(order.getId())) {
+            log.info("消息已处理，跳过：orderId={}", order.getId());
+            return;
+        }
+        
+        // 扣减库存
+        inventoryService.decrease(order.getProductId(), order.getCount());
+        
+        // 标记已处理
+        inventoryService.markProcessed(order.getId());
+        
+        log.info("订单消息处理成功：orderId={}", order.getId());
+    }
+}
+```
+
+### 8.5 幂等设计
+
+```java
+/**
+ * 方案 1：数据库唯一索引
+ */
+CREATE TABLE order_process (
+    order_id BIGINT PRIMARY KEY,
+    status VARCHAR(20),
+    process_time DATETIME
+);
+
+public void processOrder(Long orderId) {
+    try {
+        // 插入处理记录（唯一索引保证幂等）
+        orderProcessMapper.insert(orderId, "PROCESSING");
+        
+        // 业务处理
+        doProcess(orderId);
+        
+        // 更新状态
+        orderProcessMapper.updateStatus(orderId, "DONE");
+        
+    } catch (DuplicateKeyException e) {
+        log.warn("订单已处理：orderId={}", orderId);
+    }
+}
+
+/**
+ * 方案 2：Redis 分布式锁
+ */
+public void processOrder(Long orderId) {
+    String lockKey = "lock:order:process:" + orderId;
+    String lockValue = UUID.randomUUID().toString();
+    
+    boolean locked = redisTemplate.opsForValue()
+        .setIfAbsent(lockKey, lockValue, 30, TimeUnit.SECONDS);
+    
+    if (!locked) {
+        log.warn("订单处理中，跳过：orderId={}", orderId);
+        return;
+    }
+    
+    try {
+        // 幂等检查
+        if (isProcessed(orderId)) {
+            log.info("订单已处理：orderId={}", orderId);
+            return;
+        }
+        
+        // 业务处理
+        doProcess(orderId);
+        
+        // 标记已处理
+        markProcessed(orderId);
+        
+    } finally {
+        // 释放锁（Lua 脚本）
+        String script = "if redis.call('get', KEYS[1]) == ARGV[1] then " +
+                       "return redis.call('del', KEYS[1]) else return 0 end";
+        redisTemplate.execute(RedisScript.of(script, Long.class),
+            Collections.singletonList(lockKey), lockValue);
+    }
+}
+
+/**
+ * 方案 3：状态机
+ */
+public void payOrder(Long orderId) {
+    // CAS 更新状态
+    int rows = orderMapper.updateStatus(orderId, 
+        OrderStatus.PAID, OrderStatus.PENDING);
+    
+    if (rows == 0) {
+        Order order = orderMapper.selectById(orderId);
+        throw new BusinessException("订单状态不正确，当前状态：" + order.getStatus());
+    }
+    
+    // 业务处理
+    doPay(orderId);
+}
+```
+
+---
+
+## 📝 实战清单
+
+**理论基础：**
+- [ ] CAP 定理理解
+- [ ] BASE 理论理解
+- [ ] 事务隔离级别
+- [ ] 分布式事务场景
+
+**解决方案：**
+- [ ] 2PC 原理与实现
+- [ ] TCC 模式实现
+- [ ] 本地消息表实现
+- [ ] MQ 事务消息
 - [ ] Saga 模式
-- [ ] 幂等设计
+- [ ] Seata AT 模式
+
+**Seata 实战：**
+- [ ] Seata Server 部署
+- [ ] @GlobalTransactional 注解
+- [ ] undo_log 表创建
+- [ ] 分支事务注册
+- [ ] 回滚处理
+
+**幂等设计：**
+- [ ] 数据库唯一索引
+- [ ] Redis 分布式锁
+- [ ] 状态机模式
+- [ ] Token 机制
+- [ ] 请求去重表
+
+**生产就绪：**
+- [ ] 事务超时配置
+- [ ] 事务重试机制
+- [ ] 事务监控告警
+- [ ] 事务日志记录
+- [ ] 对账补偿机制
 
 ---
 
 **推荐资源：**
-- 📖 Seata 官方文档
+- 📖 Seata 官方文档：https://seata.io
 - 🔗 GitHub：https://github.com/seata/seata
+- 📚 《分布式事务：从原理到实践》
+- 🎥 B 站：分布式事务解决方案详解

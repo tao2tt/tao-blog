@@ -328,19 +328,229 @@ mall-cloud/
 
 ---
 
-## 📝 待办事项
+## 7. 实战：电商微服务架构
 
-- [ ] Nacos 安装与配置
-- [ ] 服务注册与发现实战
+### 7.1 项目结构
+
+```
+mall-cloud/
+├── mall-common/              # 公共模块
+│   ├── common-core/         # 核心工具类
+│   ├── common-redis/        # Redis 配置
+│   ├── common-security/     # 安全认证
+│   └── common-swagger/      # API 文档
+├── mall-gateway/            # 网关服务 (8080)
+├── mall-auth/               # 认证中心 (8001)
+├── mall-user/               # 用户服务 (8002)
+├── mall-product/            # 商品服务 (8003)
+├── mall-order/              # 订单服务 (8004)
+├── mall-cart/               # 购物车服务 (8005)
+└── mall-payment/            # 支付服务 (8006)
+```
+
+### 7.2 统一响应
+
+```java
+@Data
+public class Result<T> {
+    private Integer code;
+    private String message;
+    private T data;
+    private Long timestamp;
+    
+    public static <T> Result<T> success(T data) {
+        Result<T> result = new Result<>();
+        result.setCode(200);
+        result.setMessage("success");
+        result.setData(data);
+        result.setTimestamp(System.currentTimeMillis());
+        return result;
+    }
+    
+    public static <T> Result<T> error(String message) {
+        Result<T> result = new Result<>();
+        result.setCode(500);
+        result.setMessage(message);
+        result.setTimestamp(System.currentTimeMillis());
+        return result;
+    }
+}
+```
+
+### 7.3 全局异常处理
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    
+    @ExceptionHandler(BusinessException.class)
+    public Result<Void> handleBusinessException(BusinessException e) {
+        log.warn("业务异常：{}", e.getMessage());
+        return Result.error(e.getMessage());
+    }
+    
+    @ExceptionHandler(AccessDeniedException.class)
+    public Result<Void> handleAccessDeniedException(AccessDeniedException e) {
+        return Result.error("权限不足");
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception e) {
+        log.error("系统异常", e);
+        return Result.error("系统繁忙，请稍后再试");
+    }
+}
+```
+
+---
+
+## 8. 生产环境配置
+
+### 8.1 Nacos 配置中心
+
+```yaml
+# application-prod.yml
+spring:
+  cloud:
+    nacos:
+      config:
+        server-addr: ${NACOS_SERVER:192.168.1.100:8848}
+        namespace: ${NACOS_NAMESPACE:prod}  # 按环境隔离
+        group: DEFAULT_GROUP
+        file-extension: yaml
+        refresh-enabled: true
+      discovery:
+        server-addr: ${NACOS_SERVER:192.168.1.100:8848}
+        namespace: ${NACOS_NAMESPACE:prod}
+        group: DEFAULT_GROUP
+        register-enabled: true
+        heartbeat-interval: 5000  # 5 秒心跳
+        ip-delete-timeout: 15000  # 15 秒剔除
+```
+
+### 8.2 服务治理
+
+```yaml
+# 服务超时配置
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 10000
+  compression:
+    request:
+      enabled: true
+      mime-types: text/xml,application/json
+      min-request-size: 2048
+    response:
+      enabled: true
+
+# 重试配置
+spring:
+  cloud:
+    openfeign:
+      httpclient:
+        retry-enabled: true
+        max-connections: 1000
+        max-connections-per-route: 100
+```
+
+### 8.3 链路追踪
+
+```xml
+<!-- SkyWalking 集成 -->
+<dependency>
+    <groupId>org.apache.skywalking</groupId>
+    <artifactId>apm-toolkit-trace</artifactId>
+    <version>9.7.0</version>
+</dependency>
+```
+
+```java
+// 添加追踪注解
+@Trace
+public Order createOrder(Order order) {
+    // 业务逻辑
+}
+
+// 日志集成
+@Trace(tags = {@Tag(key = "orderId", value = "arg[0].id")})
+public Order getOrderById(Long orderId) {
+    return orderMapper.selectById(orderId);
+}
+```
+
+### 8.4 启动脚本
+
+```bash
+#!/bin/bash
+# start.sh
+
+APP_NAME=$1
+APP_PORT=$2
+
+# 检查参数
+if [ -z "$APP_NAME" ] || [ -z "$APP_PORT" ]; then
+    echo "Usage: $0 <app_name> <app_port>"
+    exit 1
+fi
+
+# JVM 参数
+JAVA_OPTS="-Xms512m -Xmx512m"
+JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC"
+JAVA_OPTS="$JAVA_OPTS -XX:MaxGCPauseMillis=200"
+JAVA_OPTS="$JAVA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+JAVA_OPTS="$JAVA_OPTS -XX:HeapDumpPath=/data/logs/$APP_NAME/heapdump.hprof"
+
+# SkyWalking 探针
+JAVA_OPTS="$JAVA_OPTS -javaagent:/opt/skywalking/agent/skywalking-agent.jar"
+JAVA_OPTS="$JAVA_OPTS -Dskywalking.agent.service_name=$APP_NAME"
+JAVA_OPTS="$JAVA_OPTS -Dskywalking.collector.backend_service=${SW_SERVER:192.168.1.200:11800}"
+
+# 启动
+nohup java $JAVA_OPTS -jar $APP_NAME.jar \
+    --server.port=$APP_PORT \
+    --spring.profiles.active=prod \
+    > /data/logs/$APP_NAME/startup.log 2>&1 &
+
+echo "$APP_NAME started on port $APP_PORT"
+```
+
+---
+
+## 📝 实战清单
+
+**基础环境：**
+- [ ] Nacos 集群搭建（3 节点）
+- [ ] Sentinel Dashboard 部署
+- [ ] Seata Server 配置
+- [ ] SkyWalking OAP + UI 部署
+
+**服务开发：**
+- [ ] 公共模块封装（common-*）
+- [ ] 网关路由配置
+- [ ] 认证中心 JWT 实现
+- [ ] 各业务服务开发
+
+**服务治理：**
+- [ ] 服务注册与发现
 - [ ] OpenFeign 服务调用
-- [ ] Gateway 网关配置
-- [ ] Sentinel 熔断限流
-- [ ] Seata 分布式事务
-- [ ] 完整微服务项目实战
+- [ ] Sentinel 熔断限流配置
+- [ ] Seata 分布式事务集成
+
+**生产就绪：**
+- [ ] 配置中心多环境隔离
+- [ ] 链路追踪接入
+- [ ] 日志收集（ELK）
+- [ ] 监控告警（Prometheus）
+- [ ] 健康检查配置
+- [ ] 灰度发布策略
 
 ---
 
 **推荐资源：**
-- 📚 《Spring Cloud 微服务实战》
-- 📖 Spring Cloud 官方文档
-- 🔗 Spring Cloud Alibaba GitHub
+- 📚 《Spring Cloud Alibaba 微服务实战》
+- 📖 Spring Cloud Alibaba 官方文档
+- 🔗 GitHub：https://github.com/alibaba/spring-cloud-alibaba
+- 🎥 B 站：尚硅谷 Spring Cloud 微服务

@@ -484,19 +484,449 @@ public CorsFilter corsFilter() {
 
 ---
 
-## 📝 待办事项
+## 7. 实战：前后端分离权限系统
 
-- [ ] Spring Security 基础配置
+### 7.1 完整项目结构
+
+```
+mall-security/
+├── mall-auth-server/        # 认证服务器
+│   ├── controller/          # 登录/登出/刷新 Token
+│   ├── service/             # 用户认证服务
+│   ├── config/              # Security/JWT 配置
+│   └── entity/              # 用户/角色/权限实体
+├── mall-gateway/            # 网关（统一鉴权）
+└── mall-resource-server/    # 资源服务器
+    ├── controller/          # 业务接口
+    └── config/              # 资源服务器配置
+```
+
+### 7.2 登录接口
+
+```java
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+    
+    @Autowired
+    private AuthenticationManager authenticationManager;
+    
+    @Autowired
+    private JwtUtil jwtUtil;
+    
+    @PostMapping("/login")
+    public Result<LoginResponse> login(@RequestBody LoginForm form) {
+        // 1. 认证
+        UsernamePasswordAuthenticationToken token = 
+            new UsernamePasswordAuthenticationToken(
+                form.getUsername(), form.getPassword());
+        
+        Authentication authentication = 
+            authenticationManager.authenticate(token);
+        
+        // 2. 生成 Token
+        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+        String accessToken = jwtUtil.generateToken(userDetails);
+        String refreshToken = jwtUtil.generateRefreshToken(userDetails);
+        
+        // 3. 保存 Refresh Token（Redis）
+        redisTemplate.opsForValue().set(
+            "refresh:" + userDetails.getUsername(),
+            refreshToken,
+            7, TimeUnit.DAYS
+        );
+        
+        // 4. 返回响应
+        LoginResponse response = new LoginResponse();
+        response.setAccessToken(accessToken);
+        response.setRefreshToken(refreshToken);
+        response.setExpiresIn(3600);
+        response.setTokenType("Bearer");
+        
+        return Result.success(response);
+    }
+    
+    @PostMapping("/refresh")
+    public Result<LoginResponse> refresh(@RequestParam String refreshToken) {
+        if (!jwtUtil.validateRefreshToken(refreshToken)) {
+            return Result.error("Refresh Token 无效");
+        }
+        
+        String username = jwtUtil.getUsernameFromToken(refreshToken);
+        String storedToken = redisTemplate.opsForValue()
+            .get("refresh:" + username);
+        
+        if (!refreshToken.equals(storedToken)) {
+            return Result.error("Refresh Token 已失效");
+        }
+        
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        String newAccessToken = jwtUtil.generateToken(userDetails);
+        String newRefreshToken = jwtUtil.generateRefreshToken(userDetails);
+        
+        // 更新 Redis
+        redisTemplate.opsForValue().set(
+            "refresh:" + username,
+            newRefreshToken,
+            7, TimeUnit.DAYS
+        );
+        
+        LoginResponse response = new LoginResponse();
+        response.setAccessToken(newAccessToken);
+        response.setRefreshToken(newRefreshToken);
+        response.setExpiresIn(3600);
+        response.setTokenType("Bearer");
+        
+        return Result.success(response);
+    }
+    
+    @PostMapping("/logout")
+    public Result<Void> logout(
+            @RequestHeader("Authorization") String token,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        // 1. 将 Token 加入黑名单
+        String jti = jwtUtil.getJtiFromToken(token.replace("Bearer ", ""));
+        redisTemplate.opsForValue().set(
+            "token:blacklist:" + jti,
+            "1",
+            jwtUtil.getExpirationFromToken(token.replace("Bearer ", "")),
+            TimeUnit.SECONDS
+        );
+        
+        // 2. 删除 Refresh Token
+        redisTemplate.delete("refresh:" + userDetails.getUsername());
+        
+        return Result.success(null);
+    }
+}
+```
+
+### 7.3 网关统一鉴权
+
+```java
+@Component
+public class AuthFilter implements GlobalFilter, Ordered {
+    
+    @Autowired
+    private JwtUtil jwtUtil;
+    
+    private static final List<String> WHITE_LIST = Arrays.asList(
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/refresh",
+        "/api/public/**"
+    );
+    
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        ServerHttpRequest request = exchange.getRequest();
+        String path = request.getPath().value();
+        
+        // 白名单放行
+        if (WHITE_LIST.stream().anyMatch(pattern -> match(pattern, path))) {
+            return chain.filter(exchange);
+        }
+        
+        // 获取 Token
+        String token = request.getHeaders().getFirst("Authorization");
+        if (token == null || !token.startsWith("Bearer ")) {
+            return onError(exchange, "未登录", HttpStatus.UNAUTHORIZED);
+        }
+        
+        token = token.substring(7);
+        
+        // 验证 Token
+        if (!jwtUtil.validateToken(token) || jwtUtil.isBlacklisted(token)) {
+            return onError(exchange, "Token 无效或已过期", HttpStatus.UNAUTHORIZED);
+        }
+        
+        // 解析用户信息
+        Claims claims = jwtUtil.getClaimsFromToken(token);
+        String username = claims.getSubject();
+        String userId = claims.get("userId", String.class);
+        String roles = claims.get("roles", String.class);
+        
+        // 传递用户信息到下游服务
+        ServerHttpRequest newRequest = request.mutate()
+            .header("X-User-Id", userId)
+            .header("X-Username", username)
+            .header("X-Roles", roles)
+            .build();
+        
+        return chain.filter(exchange.mutate().request(newRequest).build());
+    }
+    
+    private boolean match(String pattern, String path) {
+        if (pattern.endsWith("/**")) {
+            return path.startsWith(pattern.substring(0, pattern.length() - 3));
+        }
+        return path.equals(pattern);
+    }
+    
+    private Mono<Void> onError(ServerWebExchange exchange, String message, HttpStatus status) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(status);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        
+        Map<String, Object> body = new HashMap<>();
+        body.put("code", status.value());
+        body.put("message", message);
+        body.put("timestamp", System.currentTimeMillis());
+        
+        DataBuffer buffer = response.bufferFactory()
+            .wrap(JSON.toJSONString(body).getBytes(StandardCharsets.UTF_8));
+        
+        return response.writeWith(Mono.just(buffer));
+    }
+    
+    @Override
+    public int getOrder() {
+        return -100;  // 高优先级
+    }
+}
+```
+
+### 7.4 动态权限控制
+
+```java
+@Service
+public class DynamicPermissionService implements FilterInvocationSecurityMetadataSource {
+    
+    @Autowired
+    private PermissionMapper permissionMapper;
+    
+    private AntPathMatcher pathMatcher = new AntPathMatcher();
+    
+    // 权限缓存（key: 路径，value: 权限列表）
+    private ConcurrentHashMap<String, Collection<ConfigAttribute>> permissionCache = 
+        new ConcurrentHashMap<>();
+    
+    @Override
+    public Collection<ConfigAttribute> getAttributes(Object object) {
+        FilterInvocation fi = (FilterInvocation) object;
+        String url = fi.getRequestUrl();
+        
+        // 从缓存获取
+        Collection<ConfigAttribute> attributes = permissionCache.get(url);
+        if (attributes != null) {
+            return attributes;
+        }
+        
+        // 从数据库加载
+        List<Permission> permissions = permissionMapper.findAll();
+        for (Permission permission : permissions) {
+            if (pathMatcher.match(permission.getUrl(), url)) {
+                attributes = SecurityConfig.createList(permission.getName());
+                permissionCache.put(url, attributes);
+                return attributes;
+            }
+        }
+        
+        // 默认需要登录
+        return SecurityConfig.createList("ROLE_USER");
+    }
+    
+    @Override
+    public Collection<ConfigAttribute> getAllConfigAttributes() {
+        return null;
+    }
+    
+    @Override
+    public boolean supports(Class<?> clazz) {
+        return FilterInvocation.class.isAssignableFrom(clazz);
+    }
+    
+    // 清除缓存（权限变更时调用）
+    public void clearCache() {
+        permissionCache.clear();
+    }
+}
+```
+
+---
+
+## 8. 安全最佳实践
+
+### 8.1 密码安全
+
+```java
+@Configuration
+public class PasswordConfig {
+    
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        // 使用 BCrypt，strength=12（安全与性能平衡）
+        return new BCryptPasswordEncoder(12);
+    }
+    
+    // 多编码器支持（兼容旧密码）
+    @Bean
+    public DelegatingPasswordEncoder delegatingPasswordEncoder() {
+        Map<String, PasswordEncoder> encoders = new HashMap<>();
+        encoders.put("bcrypt", new BCryptPasswordEncoder(12));
+        encoders.put("pbkdf2", Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8());
+        encoders.put("scrypt", SCryptPasswordEncoder.defaultsForSpringSecurity_v5_8());
+        
+        DelegatingPasswordEncoder encoder = 
+            new DelegatingPasswordEncoder("bcrypt", encoders);
+        encoder.setDefaultPasswordEncoderForMatches(
+            new BCryptPasswordEncoder(12));
+        return encoder;
+    }
+}
+```
+
+### 8.2 防止暴力破解
+
+```java
+@Component
+public class LoginAttemptService {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    private static final int MAX_ATTEMPTS = 5;
+    private static final long LOCK_TIME_MINUTES = 30;
+    
+    public void loginFailed(String username) {
+        String key = "login:failed:" + username;
+        Long attempts = redisTemplate.opsForValue().increment(key);
+        
+        if (attempts == 1) {
+            redisTemplate.expire(key, LOCK_TIME_MINUTES, TimeUnit.MINUTES);
+        }
+    }
+    
+    public void loginSucceeded(String username) {
+        redisTemplate.delete("login:failed:" + username);
+        redisTemplate.delete("login:locked:" + username);
+    }
+    
+    public boolean isLocked(String username) {
+        String failedKey = "login:failed:" + username;
+        String lockedKey = "login:locked:" + username;
+        
+        Long attempts = redisTemplate.opsForValue().get(failedKey);
+        if (attempts != null && attempts >= MAX_ATTEMPTS) {
+            redisTemplate.opsForValue().set(lockedKey, "1", 1, TimeUnit.HOURS);
+            return true;
+        }
+        
+        return Boolean.TRUE.equals(redisTemplate.hasKey(lockedKey));
+    }
+}
+```
+
+### 8.3 CORS 配置
+
+```java
+@Configuration
+public class CorsConfig {
+    
+    @Bean
+    public CorsFilter corsFilter() {
+        CorsConfiguration config = new CorsConfiguration();
+        
+        // 允许的来源
+        config.setAllowedOrigins(Arrays.asList(
+            "https://www.example.com",
+            "https://admin.example.com"
+        ));
+        
+        // 允许的方法
+        config.setAllowedMethods(Arrays.asList(
+            "GET", "POST", "PUT", "DELETE", "OPTIONS"
+        ));
+        
+        // 允许的头部
+        config.setAllowedHeaders(Arrays.asList(
+            "Authorization",
+            "Content-Type",
+            "X-Requested-With"
+        ));
+        
+        // 暴露的头部
+        config.setExposedHeaders(Arrays.asList(
+            "X-Total-Count",
+            "X-Page-Number"
+        ));
+        
+        // 允许凭证
+        config.setAllowCredentials(true);
+        
+        // 预检请求缓存时间
+        config.setMaxAge(3600L);
+        
+        UrlBasedCorsConfigurationSource source = 
+            new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        
+        return new CorsFilter(source);
+    }
+}
+```
+
+### 8.4 CSRF 防护
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf
+                // REST API 通常关闭 CSRF（使用 Token 认证）
+                .ignoringRequestMatchers("/api/**")
+                // 浏览器端需要 CSRF
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+            );
+        
+        return http.build();
+    }
+}
+```
+
+---
+
+## 📝 实战清单
+
+**基础配置：**
+- [ ] Spring Security 6 基础配置
 - [ ] 自定义 UserDetailsService
-- [ ] JWT 认证实现
-- [ ] 方法级权限控制
-- [ ] OAuth2 第三方登录
-- [ ] RBAC 权限系统实战
-- [ ] 动态权限管理
+- [ ] BCrypt 密码加密
+- [ ] 登录/登出接口
+
+**JWT 认证：**
+- [ ] JWT 工具类实现
+- [ ] Access Token + Refresh Token
+- [ ] Token 黑名单机制
+- [ ] JWT 认证过滤器
+
+**权限控制：**
+- [ ] RBAC 模型设计（用户 - 角色 - 权限）
+- [ ] 方法级权限（@PreAuthorize）
+- [ ] 动态权限加载
+- [ ] 数据权限（行级/列级）
+
+**安全加固：**
+- [ ] 防暴力破解（登录限流）
+- [ ] CORS 跨域配置
+- [ ] CSRF 防护
+- [ ] XSS 防护
+- [ ] SQL 注入防护
+
+**生产就绪：**
+- [ ] OAuth2 第三方登录（微信/支付宝）
+- [ ] SSO 单点登录
+- [ ] 审计日志（登录日志/操作日志）
+- [ ] 敏感操作二次验证
 
 ---
 
 **推荐资源：**
-- 📚 《Spring Security 实战》
+- 📚 《Spring Security 6 实战》
 - 📖 Spring Security 官方文档
+- 🔗 OWASP Top 10：https://owasp.org/www-project-top-ten/
 - 🔗 JWT.io

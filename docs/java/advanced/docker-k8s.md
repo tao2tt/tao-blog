@@ -408,21 +408,398 @@ resources:
 
 ---
 
-## 📝 待办事项
+## 7. 生产环境部署
 
-- [ ] Docker 基础操作
+### 7.1 完整 CI/CD 流程
+
+```yaml
+# .github/workflows/deploy.yml
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+env:
+  REGISTRY: harbor.example.com
+  APP_NAME: mall-user
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+    
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.APP_NAME }}:latest
+  
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - name: Deploy to K8s
+      uses: azure/k8s-deploy@v4
+      with:
+        namespace: production
+        manifests: |
+          k8s/deployment.yaml
+          k8s/service.yaml
+          k8s/ingress.yaml
+        images: |
+          ${{ env.REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }}
+```
+
+### 7.2 生产 Deployment
+
+```yaml
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mall-user
+  namespace: production
+  labels:
+    app: mall-user
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: mall-user
+  template:
+    metadata:
+      labels:
+        app: mall-user
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: mall-user
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: mall-user
+        image: harbor.example.com/mall-user:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9999
+          name: debug
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: prod
+        - name: JAVA_OPTS
+          value: "-Xms1g -Xmx1g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: db.host
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: db.password
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      terminationGracePeriodSeconds: 60
+```
+
+### 7.3 HPA 自动扩缩容
+
+```yaml
+# k8s/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mall-user-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mall-user
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+```
+
+### 7.4 配置中心
+
+```yaml
+# k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: production
+data:
+  db.host: "mysql.production.svc.cluster.local"
+  db.port: "3306"
+  db.name: "mall"
+  redis.host: "redis.production.svc.cluster.local"
+  redis.port: "6379"
+  nacos.server: "nacos.production.svc.cluster.local:8848"
+  sentinel.server: "sentinel.production.svc.cluster.local:8080"
+
+---
+# k8s/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+  namespace: production
+type: Opaque
+stringData:
+  db.password: "YourDbPassword123!"
+  redis.password: "YourRedisPassword123!"
+  jwt.secret: "YourJwtSecretKey123456789"
+```
+
+---
+
+## 8. 运维管理
+
+### 8.1 常用命令
+
+```bash
+# 查看资源
+kubectl get pods -n production
+kubectl get deployments -n production
+kubectl get services -n production
+kubectl get ingress -n production
+kubectl get configmap -n production
+kubectl get secrets -n production
+
+# 查看详情
+kubectl describe pod mall-user-xxx -n production
+kubectl describe deployment mall-user -n production
+
+# 查看日志
+kubectl logs -f deployment/mall-user -n production
+kubectl logs -f deployment/mall-user -c mall-user -n production
+
+# 进入容器
+kubectl exec -it deployment/mall-user -n production -- bash
+
+# 扩缩容
+kubectl scale deployment mall-user --replicas=5 -n production
+
+# 滚动更新
+kubectl set image deployment/mall-user mall-user=harbor.example.com/mall-user:v2.0 -n production
+kubectl rollout status deployment/mall-user -n production
+
+# 回滚
+kubectl rollout history deployment/mall-user -n production
+kubectl rollout undo deployment/mall-user -n production
+kubectl rollout undo deployment/mall-user --to-revision=2 -n production
+
+# 资源使用
+kubectl top pods -n production
+kubectl top nodes
+
+# 故障排查
+kubectl get events -n production --sort-by='.lastTimestamp'
+```
+
+### 8.2 监控告警
+
+```yaml
+# Prometheus ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mall-user
+  namespace: production
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: mall-user
+  namespaceSelector:
+    matchNames:
+    - production
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 30s
+
+# Grafana 告警规则
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mall-alerts
+  namespace: production
+spec:
+  groups:
+  - name: mall
+    rules:
+    - alert: PodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 5 > 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod {{ $labels.pod }} 频繁重启"
+    
+    - alert: PodNotReady
+      expr: kube_pod_status_ready{condition="true"} == 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ $labels.pod }} 未就绪"
+    
+    - alert: HighMemoryUsage
+      expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "容器内存使用率超过 90%"
+```
+
+---
+
+## 📝 实战清单
+
+**Docker 基础：**
+- [ ] Docker 安装与配置
+- [ ] 镜像操作（pull/push/build）
+- [ ] 容器操作（run/exec/logs）
 - [ ] Dockerfile 编写
+- [ ] 多阶段构建优化
 - [ ] Docker Compose 编排
-- [ ] K8s 核心概念
-- [ ] Deployment/Service 配置
-- [ ] Ingress 配置
-- [ ] Helm 使用
-- [ ] 生产环境部署实战
+
+**K8s 核心：**
+- [ ] K8s 集群搭建（kubeadm/k3s）
+- [ ] Pod 配置与调度
+- [ ] Deployment 部署
+- [ ] Service 服务发现
+- [ ] ConfigMap/Secret 配置管理
+- [ ] Ingress 外部访问
+
+**生产就绪：**
+- [ ] 健康检查配置（liveness/readiness）
+- [ ] 资源限制（requests/limits）
+- [ ] HPA 自动扩缩容
+- [ ] 滚动更新策略
+- [ ] 亲和性配置（podAntiAffinity）
+- [ ] 优雅停机（terminationGracePeriodSeconds）
+
+**CI/CD：**
+- [ ] GitHub Actions 配置
+- [ ] 镜像构建与推送
+- [ ] K8s 自动部署
+- [ ] 灰度发布策略
+
+**监控运维：**
+- [ ] Prometheus 监控
+- [ ] Grafana 可视化
+- [ ] 告警规则配置
+- [ ] 日志收集（EFK）
+- [ ] 链路追踪（SkyWalking/Jaeger）
 
 ---
 
 **推荐资源：**
 - 📚 《Kubernetes 权威指南》
-- 📖 Docker 官方文档
-- 📖 Kubernetes 官方文档
-- 🔗 https://kubernetes.io
+- 📚 《Docker 技术入门与实战》
+- 📖 Docker 官方文档：https://docs.docker.com
+- 📖 Kubernetes 官方文档：https://kubernetes.io
+- 🎥 B 站：Kubernetes 从入门到实战

@@ -313,18 +313,282 @@ ognl               # 执行表达式
 
 ---
 
-## 📝 待办事项
+## 9. 实战：生产故障排查
 
-- [ ] 日志系统配置
-- [ ] 监控告警配置
-- [ ] 链路追踪接入
+### 9.1 故障 1：接口超时
+
+**现象：** 订单创建接口偶尔超时（>10 秒）
+
+**排查过程：**
+
+```bash
+# 1. 查看链路追踪（SkyWalking）
+# 发现：库存服务调用耗时 9 秒
+
+# 2. 查看库存服务日志
+grep "DECREASE" inventory.log | grep "ERROR" | tail -20
+
+# 发现：大量锁等待日志
+
+# 3. 查看数据库锁
+SELECT * FROM information_schema.innodb_lock_waits;
+
+# 发现：库存表行锁等待
+
+# 4. 查看慢查询
+SELECT * FROM mysql.slow_log WHERE start_time > NOW() - INTERVAL 1 HOUR;
+
+# 发现：UPDATE stock SET count = count - 1 WHERE product_id = ? 耗时 8 秒
+
+# 5. 查看该 SQL 执行计划
+EXPLAIN UPDATE stock SET count = count - 1 WHERE product_id = 1001;
+
+# 发现：未使用索引，全表扫描
+
+# 6. 解决方案
+CREATE INDEX idx_product_id ON stock(product_id);
+
+# 7. 验证效果
+# 接口 RT 从 10 秒降至 50ms
+```
+
+### 9.2 故障 2：内存泄漏
+
+**现象：** 应用运行 2-3 天后 OOM 宕机
+
+**排查过程：**
+
+```bash
+# 1. 查看 GC 日志
+grep "Full GC" gc.log | tail -50
+
+# 发现：Full GC 频率越来越高，从 1 天 1 次变为 1 小时 1 次
+
+# 2. 生成堆转储
+jmap -dump:format=b,file=/tmp/heap.hprof <pid>
+
+# 3. MAT 分析
+# - Histogram: char[] 对象 100 万个
+# - Dominator Tree: com.example.cache.CacheEntry 占用 3GB
+
+# 4. 查看代码
+private static Map<String, String> cache = new ConcurrentHashMap<>();
+
+public void put(String key, String value) {
+    cache.put(key, value);  // 只增不减
+}
+
+# 5. 解决方案
+// 使用 Caffeine 缓存（带过期和大小限制）
+private Cache<String, String> cache = Caffeine.newBuilder()
+    .maximumSize(10000)
+    .expireAfterWrite(1, TimeUnit.HOURS)
+    .build();
+
+# 6. 验证效果
+# 应用运行 7 天无 OOM
+```
+
+### 9.3 故障 3：CPU 100%
+
+**现象：** 生产环境 CPU 持续 100%
+
+**排查过程：**
+
+```bash
+# 1. top 查看进程
+top
+# PID 1234 java 占用 CPU 98%
+
+# 2. top -Hp 查看线程
+top -Hp 1234
+# TID 1235 占用 CPU 45%
+# TID 1236 占用 CPU 42%
+
+# 3. 转 16 进制
+printf "%x\n" 1235  # 4d3
+
+# 4. jstack 查看线程栈
+jstack 1234 | grep -A 20 "0x4d3"
+
+# 发现：
+# at com.example.OrderService.calculatePrice(OrderService.java:125)
+# at com.example.OrderService.createOrder(OrderService.java:80)
+
+# 5. 查看代码
+public BigDecimal calculatePrice(Order order) {
+    // 正则回溯
+    if (order.getRemark().matches("(a+)+b")) {
+        // ...
+    }
+}
+
+# 6. 解决方案
+// 简化正则或使用其他匹配方式
+if (order.getRemark().contains("abc")) {
+    // ...
+}
+
+# 7. 验证效果
+# CPU 降至 20%
+```
+
+### 9.4 故障 4：数据库连接池满
+
+**现象：** 应用日志大量"Cannot get connection"错误
+
+**排查过程：**
+
+```bash
+# 1. 查看监控
+# HikariCP 活跃连接数：100/100（满）
+
+# 2. 查看数据库
+SHOW PROCESSLIST;
+
+# 发现：大量 SLEEP 状态连接，来自同一应用
+
+# 3. 查看代码
+public List<User> getUsers() {
+    Connection conn = dataSource.getConnection();
+    Statement stmt = conn.createStatement();
+    ResultSet rs = stmt.executeQuery("SELECT * FROM user");
+    // 忘记关闭资源
+    return userList;
+}
+
+# 4. 解决方案
+public List<User> getUsers() {
+    try (Connection conn = dataSource.getConnection();
+         Statement stmt = conn.createStatement();
+         ResultSet rs = stmt.executeQuery("SELECT * FROM user")) {
+        // ...
+    }
+}
+
+# 5. 配置优化
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 50      # 从 100 降至 50
+      minimum-idle: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000  # 开启泄漏检测
+
+# 6. 验证效果
+# 连接池使用率降至 30%
+```
+
+---
+
+## 10. 应急预案
+
+### 10.1 应急流程
+
+```
+1. 发现故障（监控告警/用户反馈）
+2. 初步判断（影响范围、严重程度）
+3. 快速止损（重启/回滚/降级/限流）
+4. 问题定位（日志/监控/链路）
+5. 问题修复（热修复/重新发布）
+6. 验证恢复（监控指标、业务验证）
+7. 故障复盘（根因分析、改进措施）
+```
+
+### 10.2 应急联系人
+
+| 角色 | 姓名 | 电话 | 职责 |
+|------|------|------|------|
+| 值班人员 | xxx | 138xxxx | 第一时间响应 |
+| 技术负责人 | xxx | 139xxxx | 决策指挥 |
+| DBA | xxx | 137xxxx | 数据库问题 |
+| 运维 | xxx | 136xxxx | 环境/网络问题 |
+| 业务负责人 | xxx | 135xxxx | 业务影响评估 |
+
+### 10.3 应急工具包
+
+```bash
+# 快速诊断脚本
+#!/bin/bash
+# emergency-check.sh
+
+PID=$1
+
+echo "=== 进程信息 ==="
+ps aux | grep $PID
+
+echo ""
+echo "=== JVM 信息 ==="
+jinfo -flags $PID | head -20
+
+echo ""
+echo "=== 内存使用 ==="
+jstat -gcutil $PID 1000 3
+
+echo ""
+echo "=== 线程信息 ==="
+jstack $PID | grep "java.lang.Thread.State" | sort | uniq -c
+
+echo ""
+echo "=== 网络连接 ==="
+netstat -anp | grep $PID | wc -l
+
+echo ""
+echo "=== 磁盘使用 ==="
+df -h
+```
+
+---
+
+## 📝 实战清单
+
+**日志系统：**
+- [ ] Logback 配置
+- [ ] 日志分级（ERROR/WARN/INFO/DEBUG）
+- [ ] 日志滚动（按天/按大小）
+- [ ] 日志收集（Filebeat）
+- [ ] 日志分析（ELK）
+
+**监控告警：**
+- [ ] Actuator 端点
+- [ ] Prometheus 指标采集
+- [ ] Grafana 可视化
+- [ ] 告警规则配置
+- [ ] 告警通知（钉钉/企业微信/短信）
+
+**链路追踪：**
+- [ ] SkyWalking 接入
+- [ ] 链路 ID 透传
+- [ ] 慢调用分析
+- [ ] 拓扑图查看
+
+**排查工具：**
+- [ ] JDK 工具（jps/jstat/jmap/jstack）
 - [ ] Arthas 实战
-- [ ] 应急预案制定
-- [ ] 故障复盘模板
+- [ ] 监控平台使用
+- [ ] 日志查询（Kibana）
+
+**应急预案：**
+- [ ] 应急流程文档
+- [ ] 应急联系人清单
+- [ ] 应急工具包
+- [ ] 快速止损方案（重启/回滚/降级/限流）
+- [ ] 定期应急演练
+
+**故障复盘：**
+- [ ] 故障时间线
+- [ ] 根因分析（5 Why）
+- [ ] 影响评估
+- [ ] 改进措施
+- [ ] 经验沉淀
 
 ---
 
 **推荐资源：**
-- 🔗 Arthas 官方文档
-- 📖 SkyWalking 官方文档
+- 🔗 Arthas 官方文档：https://arthas.aliyun.com
+- 📖 SkyWalking 官方文档：https://skywalking.apache.org
 - 📚 《SRE：Google 运维解密》
+- 📚 《Google SRE 工作手册》
+- 🛠️ ELK Stack：https://www.elastic.co/elastic-stack
