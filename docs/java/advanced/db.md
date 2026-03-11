@@ -565,8 +565,308 @@ ALTER TABLE order PARTITION BY RANGE (YEAR(create_time)) (
 
 ---
 
-> 💡 **学习建议**：数据库优化是高级开发必备技能，建议：
-> 1. 理解索引原理（B+ 树）
-> 2. 掌握 EXPLAIN 分析
-> 3. 实战慢查询优化
-> 4. 学习分库分表（ShardingSphere）
+## 10. 实战案例
+
+### 10.1 案例 1：订单查询优化
+
+**场景：** 订单列表查询慢（平均 3 秒）
+
+```sql
+-- 原始 SQL
+SELECT * FROM `order` 
+WHERE user_id = 1001 
+  AND status IN (1, 2, 3) 
+  AND create_time >= '2026-01-01'
+ORDER BY create_time DESC
+LIMIT 0, 10;
+
+-- EXPLAIN 分析
+EXPLAIN SELECT * FROM `order` 
+WHERE user_id = 1001 
+  AND status IN (1, 2, 3) 
+  AND create_time >= '2026-01-01'
+ORDER BY create_time DESC
+LIMIT 0, 10;
+
+-- 结果：
+-- type: ALL（全表扫描）
+-- key: NULL（未使用索引）
+-- rows: 5000000（扫描 500 万行）
+-- Extra: Using where; Using filesort（文件排序）
+
+-- 优化方案 1：添加联合索引
+CREATE INDEX idx_user_status_time ON `order`(user_id, status, create_time);
+
+-- 优化后 EXPLAIN：
+-- type: ref
+-- key: idx_user_status_time
+-- rows: 100（扫描 100 行）
+-- Extra: Using where
+
+-- 优化效果：3000ms → 50ms
+```
+
+### 10.2 案例 2：深分页优化
+
+**场景：** 订单列表翻到第 10000 页时查询慢（8 秒）
+
+```sql
+-- 原始 SQL（深分页）
+SELECT * FROM `order` 
+ORDER BY create_time DESC 
+LIMIT 999900, 10;
+
+-- 问题分析：
+-- MySQL 需要扫描 999910 行，丢弃前 999900 行，只取 10 行
+-- 效率极低
+
+-- 优化方案 1：延迟关联
+SELECT o.* FROM `order` o
+INNER JOIN (
+    SELECT id FROM `order` 
+    ORDER BY create_time DESC 
+    LIMIT 999900, 10
+) tmp ON o.id = tmp.id;
+
+-- 优化效果：8000ms → 500ms
+
+-- 优化方案 2：记录上次 ID（适用于连续翻页）
+SELECT * FROM `order` 
+WHERE create_time < '2026-01-01 00:00:00' 
+  AND id < 999900
+ORDER BY create_time DESC, id DESC
+LIMIT 10;
+
+-- 优化效果：8000ms → 100ms
+
+-- 优化方案 3：业务限制
+-- 最多允许翻 100 页（1000 条数据）
+-- 引导用户使用搜索/筛选功能
+```
+
+### 10.3 案例 3：批量插入优化
+
+**场景：** 导入 10 万条订单数据，耗时 30 分钟
+
+```sql
+-- 原始方式：逐条插入
+for (Order order : orders) {
+    orderMapper.insert(order);  // 10 万次数据库交互
+}
+-- 耗时：30 分钟
+
+-- 优化方案 1：批量插入
+-- 每 1000 条提交一次
+List<Order> batch = new ArrayList<>(1000);
+for (int i = 0; i < orders.size(); i++) {
+    batch.add(orders.get(i));
+    if (i % 1000 == 0 || i == orders.size() - 1) {
+        orderMapper.insertBatch(batch);  // 100 次数据库交互
+        batch.clear();
+    }
+}
+-- 耗时：2 分钟
+
+-- 优化方案 2：事务批处理
+@Transactional
+public void batchInsert(List<Order> orders) {
+    SqlSession sqlSession = sqlSessionTemplate.getSqlSessionFactory()
+        .openSession(ExecutorType.BATCH);
+    try {
+        OrderMapper mapper = sqlSession.getMapper(OrderMapper.class);
+        for (Order order : orders) {
+            mapper.insert(order);
+        }
+        sqlSession.flushStatements();
+        sqlSession.commit();
+    } finally {
+        sqlSession.close();
+    }
+}
+-- 耗时：30 秒
+
+-- 优化方案 3：LOAD DATA（最快）
+-- 将数据导出为 CSV，使用 LOAD DATA INFILE
+LOAD DATA LOCAL INFILE '/tmp/orders.csv'
+INTO TABLE `order`
+FIELDS TERMINATED BY ',' 
+LINES TERMINATED BY '\n'
+(user_id, order_no, amount, status, create_time);
+-- 耗时：5 秒
+```
+
+### 10.4 案例 4：死锁排查
+
+**场景：** 订单更新偶尔报错"Deadlock found"
+
+```sql
+-- 1. 查看死锁日志
+SHOW ENGINE INNODB STATUS\G
+
+-- 输出：
+------------------------
+LATEST DETECTED DEADLOCK
+------------------------
+*** (1) TRANSACTION:
+TRANSACTION 12345, ACTIVE 0 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 2 lock struct(s), heap size 1136, 1 row lock(s)
+MySQL thread id 100, OS thread handle 123456, query id 789 updating
+UPDATE `order` SET status = 2 WHERE id = 1001
+
+*** (1) HOLDS THE LOCK(S):
+RECORD LOCKS space id 1 page no 100 n bits 72 index PRIMARY of table `order`
+trx id 12345 lock_mode X locks rec but not gap
+Record lock, heap no 5 PHYSICAL RECORD: n_fields 10
+0: sup_hex 8; 1: 1001; ...
+
+*** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 1 page no 200 n bits 72 index PRIMARY of table `order`
+trx id 12345 lock_mode X locks rec but not gap waiting
+Record lock, heap no 10 PHYSICAL RECORD: n_fields 10
+0: sup_hex 8; 1: 1002; ...
+
+*** (2) TRANSACTION:
+TRANSACTION 12346, ACTIVE 0 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 2 lock struct(s), heap size 1136, 1 row lock(s)
+MySQL thread id 101, OS thread handle 123457, query id 790 updating
+UPDATE `order` SET status = 2 WHERE id = 1002
+
+*** (2) HOLDS THE LOCK(S):
+RECORD LOCKS space id 1 page no 200 n bits 72 index PRIMARY of table `order`
+trx id 12346 lock_mode X locks rec but not gap
+Record lock, heap no 10 PHYSICAL RECORD: n_fields 10
+0: sup_hex 8; 1: 1002; ...
+
+*** (2) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 1 page no 100 n bits 72 index PRIMARY of table `order`
+trx id 12346 lock_mode X locks rec but not gap waiting
+Record lock, heap no 5 PHYSICAL RECORD: n_fields 10
+0: sup_hex 8; 1: 1001; ...
+
+*** WE ROLL BACK TRANSACTION (1)
+
+-- 2. 分析原因
+-- 事务 1：更新 id=1001 → 更新 id=1002
+-- 事务 2：更新 id=1002 → 更新 id=1001
+-- 形成环路，产生死锁
+
+-- 3. 解决方案
+-- 方案 1：固定更新顺序（按 ID 从小到大）
+public void updateOrders(List<Long> orderIds) {
+    Collections.sort(orderIds);  // 排序
+    for (Long id : orderIds) {
+        orderMapper.updateStatus(id, 2);
+    }
+}
+
+-- 方案 2：使用 UPDATE ... WHERE id IN (...)
+UPDATE `order` SET status = 2 WHERE id IN (1001, 1002);
+
+-- 方案 3：降低隔离级别（SET TRANSACTION ISOLATION LEVEL READ COMMITTED）
+```
+
+### 10.5 案例 5：主从延迟优化
+
+**场景：** 主从复制延迟 30 秒，用户刚下的订单查不到
+
+```sql
+-- 1. 查看主从状态
+SHOW SLAVE STATUS\G
+
+-- 关键指标：
+-- Slave_IO_Running: Yes
+-- Slave_SQL_Running: Yes
+-- Seconds_Behind_Master: 30  (延迟 30 秒)
+
+-- 2. 分析原因
+-- - 主库并发高，从库单线程回放
+-- - 从库有大事务/慢查询
+-- - 网络延迟
+
+-- 3. 解决方案
+
+-- 方案 1：并行复制（MySQL 5.7+）
+SET GLOBAL slave_parallel_workers = 4;  -- 4 个回放线程
+SET GLOBAL slave_parallel_type = 'LOGICAL_CLOCK';
+
+-- 方案 2：业务层面解决
+-- 写完主库后，强制读主库
+public Order getOrder(Long orderId) {
+    Order order = orderMapper.selectById(orderId);
+    if (order == null) {
+        // 主库重试
+        DataSourceContextHolder.setMaster();
+        order = orderMapper.selectById(orderId);
+    }
+    return order;
+}
+
+-- 方案 3：延迟双删缓存
+@Transactional
+public void updateOrder(Order order) {
+    // 1. 删除缓存
+    redisTemplate.delete("order:" + order.getId());
+    
+    // 2. 更新数据库
+    orderMapper.updateById(order);
+    
+    // 3. 延迟再次删除（等待主从同步）
+    taskScheduler.schedule(
+        () -> redisTemplate.delete("order:" + order.getId()),
+        Instant.now().plusMillis(500)
+    );
+}
+
+-- 方案 4：接受最终一致性
+-- 产品层面引导："数据同步中，请稍后查看"
+```
+
+---
+
+## 📝 实战清单
+
+**索引优化：**
+- [ ] 理解 B+ 树原理
+- [ ] 掌握聚簇/非聚簇索引
+- [ ] 联合索引设计（最左前缀）
+- [ ] 覆盖索引使用
+- [ ] 索引失效场景识别
+
+**SQL 优化：**
+- [ ] EXPLAIN 执行计划分析
+- [ ] 慢查询日志分析
+- [ ] 深分页优化
+- [ ] JOIN 优化
+- [ ] 子查询优化
+- [ ] UNION 优化
+
+**事务锁：**
+- [ ] 事务 ACID 理解
+- [ ] 隔离级别选择
+- [ ] MVCC 原理
+- [ ] 行锁/表锁/间隙锁
+- [ ] 死锁排查与预防
+
+**架构优化：**
+- [ ] 主从复制配置
+- [ ] 读写分离实现
+- [ ] 分库分表方案
+- [ ] 数据库连接池优化
+
+**运维监控：**
+- [ ] 慢查询监控
+- [ ] 锁等待监控
+- [ ] 主从延迟监控
+- [ ] 性能基准测试
+
+---
+
+**推荐资源：**
+- 📚 《高性能 MySQL》（第 4 版）
+- 📚 《MySQL 技术内幕：InnoDB 存储引擎》
+- 📚 《数据库索引设计与优化》
+- 📖 MySQL 官方文档：https://dev.mysql.com/doc/
+- 🛠️ pt-query-digest：https://www.percona.com/software/database-tools/percona-toolkit
+- 🛠️ MySQLTuner：https://github.com/major/MySQLTuner-perl
