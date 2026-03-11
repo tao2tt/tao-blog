@@ -33,12 +33,64 @@ export default defineConfig({
         { text: 'JVM 基础', link: '/java/basic/jvm' }
       ],
       '/java/advanced/': [
-        { text: 'Spring/SpringBoot', link: '/java/advanced/spring' },
-        { text: 'MyBatis', link: '/java/advanced/mybatis' },
-        { text: '数据库优化', link: '/java/advanced/db' },
-        { text: 'Redis', link: '/java/advanced/redis' },
-        { text: '消息队列', link: '/java/advanced/mq' },
-        { text: 'Elasticsearch', link: '/java/advanced/es' }
+        {
+          text: '核心框架',
+          collapsed: false,
+          items: [
+            { text: 'Spring/SpringBoot', link: '/java/advanced/spring' },
+            { text: 'Spring Cloud', link: '/java/advanced/spring-cloud' },
+            { text: 'Spring Security', link: '/java/advanced/spring-security' },
+            { text: 'MyBatis', link: '/java/advanced/mybatis' },
+            { text: 'MyBatis-Plus', link: '/java/advanced/mybatis-plus' }
+          ]
+        },
+        {
+          text: '中间件',
+          collapsed: false,
+          items: [
+            { text: 'Redis 核心', link: '/java/advanced/redis' },
+            { text: 'Redis 高级', link: '/java/advanced/redis-advanced' },
+            { text: '消息队列选型', link: '/java/advanced/mq' },
+            { text: 'Elasticsearch 实战', link: '/java/advanced/es' }
+          ]
+        },
+        {
+          text: '数据库',
+          collapsed: false,
+          items: [
+            { text: 'MySQL 进阶', link: '/java/advanced/mysql-advanced' },
+            { text: '数据库优化', link: '/java/advanced/db' },
+            { text: '分库分表', link: '/java/advanced/sharding' }
+          ]
+        },
+        {
+          text: '工程效能',
+          collapsed: false,
+          items: [
+            { text: '单元测试', link: '/java/advanced/unit-test' },
+            { text: '代码规范', link: '/java/advanced/code-style' },
+            { text: 'CI/CD', link: '/java/advanced/cicd' },
+            { text: 'Docker & K8s', link: '/java/advanced/docker-k8s' }
+          ]
+        },
+        {
+          text: '性能与排查',
+          collapsed: false,
+          items: [
+            { text: 'JVM 调优', link: '/java/advanced/jvm-tuning' },
+            { text: '性能优化', link: '/java/advanced/performance' },
+            { text: '故障排查', link: '/java/advanced/troubleshooting' }
+          ]
+        },
+        {
+          text: '分布式',
+          collapsed: false,
+          items: [
+            { text: '分布式事务', link: '/java/advanced/distributed-transaction' },
+            { text: '分布式锁', link: '/java/advanced/distributed-lock' },
+            { text: '限流熔断', link: '/java/advanced/rate-limit' }
+          ]
+        }
       ],
       '/work/': [
         { text: '技术方案', link: '/work/tech-design' },
