@@ -10,6 +10,8 @@ export default defineConfig({
       pattern: /^h[1-6]$/
     }
   },
+  // 忽略死链检查（允许链接到未创建的页面）
+  ignoreDeadLinks: true,
   themeConfig: {
     // 启用右侧目录
     outline: {
