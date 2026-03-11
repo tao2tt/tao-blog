@@ -303,15 +303,160 @@ pt-query-digest /var/log/mysql/slow.log > slow_report.txt
 
 ---
 
-## 📝 待办事项
+## 7. 实战案例
 
-- [ ] 索引原理深入理解
-- [ ] 事务隔离级别实战
-- [ ] 锁机制与死锁排查
-- [ ] SQL 优化实战
-- [ ] 主从复制配置
-- [ ] 读写分离实现
-- [ ] 性能调优实战
+### 7.1 索引优化实战
+
+```sql
+-- 场景：订单表查询慢
+-- 原始查询
+SELECT * FROM `order` WHERE user_id = 1001 AND status = 1 ORDER BY create_time DESC;
+
+-- 分析
+EXPLAIN SELECT * FROM `order` WHERE user_id = 1001 AND status = 1 ORDER BY create_time DESC;
+-- 结果：type=ALL, Extra=Using filesort
+
+-- 优化：添加复合索引
+CREATE INDEX idx_user_status_time ON `order`(user_id, status, create_time);
+
+-- 优化后
+EXPLAIN SELECT * FROM `order` WHERE user_id = 1001 AND status = 1 ORDER BY create_time DESC;
+-- 结果：type=ref, key=idx_user_status_time, Extra=Using where
+```
+
+### 7.2 死锁排查实战
+
+```sql
+-- 1. 查看当前事务
+SELECT * FROM information_schema.innodb_trx;
+
+-- 2. 查看锁等待
+SELECT 
+    r.trx_id AS waiting_trx_id,
+    r.trx_mysql_thread_id AS waiting_thread,
+    r.trx_query AS waiting_query,
+    b.trx_id AS blocking_trx_id,
+    b.trx_mysql_thread_id AS blocking_thread,
+    b.trx_query AS blocking_query
+FROM information_schema.innodb_lock_waits w
+INNER JOIN information_schema.innodb_trx b ON b.trx_id = w.blocking_trx_id
+INNER JOIN information_schema.innodb_trx r ON r.trx_id = w.requesting_trx_id;
+
+-- 3. 杀死阻塞线程
+KILL <thread_id>;
+
+-- 4. 预防死锁
+-- - 固定访问顺序（先 A 表后 B 表）
+-- - 大事务拆小
+-- - 使用较低的隔离级别
+```
+
+### 7.3 慢查询优化实战
+
+```sql
+-- 1. 开启慢查询日志
+SET GLOBAL slow_query_log = 'ON';
+SET GLOBAL long_query_time = 1;  -- 超过 1 秒算慢查询
+
+-- 2. 查看慢查询
+SELECT * FROM mysql.slow_log;
+
+-- 3. 分析慢查询
+-- 使用 EXPLAIN 分析执行计划
+EXPLAIN SELECT o.*, u.name 
+FROM `order` o 
+LEFT JOIN user u ON o.user_id = u.id 
+WHERE o.create_time >= '2026-01-01';
+
+-- 4. 优化建议
+-- - 添加索引：CREATE INDEX idx_create_time ON `order`(create_time);
+-- - 避免 SELECT *
+-- - 避免 JOIN 过多表
+-- - 避免子查询，改用 JOIN
+```
+
+### 7.4 主从延迟排查
+
+```sql
+-- 1. 查看主从状态
+SHOW SLAVE STATUS\G
+
+-- 关键指标：
+-- Slave_IO_Running: Yes
+-- Slave_SQL_Running: Yes
+-- Seconds_Behind_Master: 0  (应接近 0)
+
+-- 2. 常见延迟原因
+-- - 大事务（批量插入/删除）
+-- - 主库并发高，从库单线程回放
+-- - 从库硬件配置低
+-- - 网络延迟
+
+-- 3. 解决方案
+-- - 大事务拆分
+-- - 使用并行复制（MySQL 5.7+）
+--   SET GLOBAL slave_parallel_workers = 4;
+-- - 升级从库硬件
+-- - 业务上接受最终一致性
+```
+
+### 7.5 分页优化实战
+
+```sql
+-- 场景：深分页查询慢
+-- 原始查询（100 万数据，查第 10000 页）
+SELECT * FROM `order` ORDER BY create_time DESC LIMIT 999900, 10;
+-- 耗时：约 5 秒
+
+-- 优化方案 1：延迟关联
+SELECT o.* FROM `order` o
+INNER JOIN (
+    SELECT id FROM `order` ORDER BY create_time DESC LIMIT 999900, 10
+) tmp ON o.id = tmp.id;
+-- 耗时：约 0.5 秒
+
+-- 优化方案 2：记录上次 ID（适用于连续翻页）
+SELECT * FROM `order` 
+WHERE create_time < '2026-01-01 00:00:00' 
+ORDER BY create_time DESC 
+LIMIT 10;
+-- 耗时：约 0.1 秒
+
+-- 优化方案 3：限制最大页数
+-- 业务上不允许翻到第 10000 页，最多 100 页
+```
+
+---
+
+## 8. 性能基准
+
+### 8.1 参考指标
+
+| 指标 | 目标值 | 说明 |
+|------|--------|------|
+| 简单查询 RT | < 10ms | 主键查询 |
+| 复杂查询 RT | < 100ms | 多表 JOIN |
+| 写入 TPS | > 1000 | 单表插入 |
+| 连接数使用率 | < 80% | max_connections |
+| 缓冲池命中率 | > 95% | innodb_buffer_pool |
+| 慢查询比例 | < 1% | 总查询数 |
+
+### 8.2 监控命令
+
+```bash
+# 查看 QPS/TPS
+mysqladmin -uroot -p status -i 1
+
+# 查看连接数
+SHOW STATUS LIKE 'Threads_connected';
+
+# 查看缓冲池命中率
+SHOW ENGINE INNODB STATUS;
+
+# 查看表锁/行锁
+SHOW STATUS LIKE 'Table_locks%';
+SHOW STATUS LIKE 'Innodb_row_lock%';
+```
 
 ---
 
@@ -319,3 +464,4 @@ pt-query-digest /var/log/mysql/slow.log > slow_report.txt
 - 📚 《高性能 MySQL》
 - 📚 《MySQL 技术内幕：InnoDB 存储引擎》
 - 📖 MySQL 官方文档
+- 🔗 Percona Toolkit：https://www.percona.com/software/database-tools/percona-toolkit
