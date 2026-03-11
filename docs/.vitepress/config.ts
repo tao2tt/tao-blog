@@ -4,7 +4,18 @@ export default defineConfig({
   base: '/tao-blog/',
   title: '涛哥的技术博客',
   description: 'Java 研发工程师的工作和学习记录',
+  markdown: {
+    // 启用标题锚点
+    anchor: {
+      pattern: /^h[1-6]$/
+    }
+  },
   themeConfig: {
+    // 启用右侧目录
+    outline: {
+      level: [2, 3],
+      label: '目录'
+    },
     nav: [
       { text: '首页', link: '/' },
       { text: 'Java 基础', link: '/java/basic/' },
