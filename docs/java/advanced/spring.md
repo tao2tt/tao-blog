@@ -8,14 +8,7 @@
 
 ## 📚 目录
 
-1. [Spring 概述](#1-spring-概述)
-2. [IOC 与 DI](#2-ioc-与-di)
-3. [AOP 面向切面编程](#3-aop-面向切面编程)
-4. [Spring MVC](#4-spring-mvc)
-5. [SpringBoot 核心](#5-springboot-核心)
-6. [自动配置原理](#6-自动配置原理)
-7. [SpringBoot 实战](#7-springboot-实战)
-8. [最佳实践](#8-最佳实践)
+[[toc]]
 
 ---
 

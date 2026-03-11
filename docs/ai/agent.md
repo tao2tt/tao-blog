@@ -8,12 +8,7 @@
 
 ## 📚 目录
 
-1. [AI Agent 概述](#1-ai-agent-概述)
-2. [Agent 架构](#2-agent-架构)
-3. [LangChain 框架](#3-langchain-框架)
-4. [Agent 开发](#4-agent-开发)
-5. [实战案例](#5-实战案例)
-
+[[toc]]
 ---
 
 ## 1. AI Agent 概述

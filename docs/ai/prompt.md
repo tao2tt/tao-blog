@@ -8,13 +8,7 @@
 
 ## 📚 目录
 
-1. [Prompt 概述](#1-prompt-概述)
-2. [Prompt 基础](#2-prompt-基础)
-3. [Prompt 技巧](#3-prompt-技巧)
-4. [高级 Prompt](#4-高级-prompt)
-5. [实战场景](#5-实战场景)
-6. [最佳实践](#6-最佳实践)
-
+[[toc]]
 ---
 
 ## 1. Prompt 概述
