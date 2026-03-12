@@ -1,482 +1,660 @@
 # AI Agent
 
-> 学习日期：2026-03-11  
+> 学习日期：2026-03-12  
 > 状态：📝 学习中  
-> 预计完成：2026-06-30
+> 预计完成：2026-05-07  
+> 难度：⭐⭐⭐⭐⭐  
+> 前置知识：[Function Calling](/ai/function-calling)、[LangChain](/ai/langchain)
 
 ---
 
 ## 📚 目录
 
 [[toc]]
+
 ---
 
-## 1. AI Agent 概述
+## 1. AI Agent 简介
 
 ### 1.1 什么是 AI Agent
 
-**AI Agent（智能体）**：能够感知环境、做出决策、执行动作的智能系统。
+**AI Agent（智能代理）** 是能够感知环境、做出决策、执行动作以实现目标的智能系统。
+
+**核心能力：**
 
 ```
-传统 AI：输入 → 输出
-AI Agent：感知 → 思考 → 行动 → 反馈
+AI Agent = LLM + 规划 + 工具使用 + 记忆
 ```
 
-### 1.2 Agent 核心能力
-
-| 能力 | 说明 | 示例 |
+| 组件 | 作用 | 示例 |
 |------|------|------|
-| **感知** | 理解环境和用户意图 | 解析用户问题 |
-| **规划** | 制定行动计划 | 分解复杂任务 |
-| **记忆** | 存储和检索信息 | 对话历史、知识库 |
-| **工具使用** | 调用外部工具 | 搜索、计算、API |
-| **学习** | 从反馈中改进 | 优化策略 |
+| **LLM** | 大脑，思考和决策 | GPT-4、Claude |
+| **规划** | 分解任务、制定计划 | 任务分解、反思 |
+| **工具使用** | 调用外部工具 | API、数据库、搜索引擎 |
+| **记忆** | 存储和回忆信息 | 短期记忆、长期记忆 |
 
-### 1.3 Agent 应用场景
+### 1.2 Agent vs 传统 LLM
 
-| 场景 | 应用 | 价值 |
-|------|------|------|
-| **智能客服** | 自动回答、工单处理 | 降低人力成本 |
-| **数据分析** | 自动报表、洞察分析 | 提高决策效率 |
-| **代码助手** | 代码生成、审查 | 提升开发效率 |
-| **流程自动化** | RPA+AI | 减少重复劳动 |
-| **个人助理** | 日程管理、提醒 | 提高生活质量 |
+| 对比项 | 传统 LLM | AI Agent |
+|--------|---------|---------|
+| **能力** | 被动回答问题 | 主动执行任务 |
+| **工具** | 无 | 可调用工具 |
+| **记忆** | 无（仅上下文） | 有短期/长期记忆 |
+| **规划** | 无 | 可制定计划 |
+| **适用场景** | 问答、创作 | 复杂任务、自动化 |
 
----
-
-## 2. Agent 架构
-
-### 2.1 基本架构
+### 1.3 Agent 架构
 
 ```
-用户输入 → LLM → 规划 → 工具调用 → 结果整合 → 输出
-
-核心组件：
-1. LLM：大脑，负责思考和决策
-2. 规划：任务分解和排序
-3. 工具：执行具体操作
-4. 记忆：存储上下文
-```
-
-### 2.2 ReAct 模式
-
-```
-ReAct（Reasoning + Acting）：推理 + 行动
-
-流程：
-1. 思考（Thought）：分析当前情况
-2. 行动（Action）：选择工具执行
-3. 观察（Observation）：获取执行结果
-4. 循环：直到任务完成
-
-示例：
-用户：今天北京天气如何？适合运动吗？
-
-思考：需要查询北京天气
-行动：调用天气 API
-观察：北京，晴，25°C，空气质量良
-思考：根据天气判断是否适合运动
-输出：今天北京晴朗，25°C，空气质量良好，非常适合户外运动！
-```
-
-### 2.3 Plan-and-Execute 模式
-
-```
-流程：
-1. 制定计划（Plan）
-2. 执行子任务（Execute）
-3. 整合结果（Synthesize）
-
-示例：
-用户：分析公司 Q1 销售数据
-
-计划：
-1. 查询 Q1 销售数据
-2. 分析各产品销售情况
-3. 对比去年同期
-4. 生成分析报告
-
-执行：依次执行每个子任务
-整合：汇总所有结果，生成最终报告
+┌─────────────────────────────────────┐
+│            AI Agent                  │
+├─────────────────────────────────────┤
+│  感知 → 规划 → 决策 → 执行 → 记忆   │
+│   ↓      ↓      ↓      ↓      ↓     │
+│  输入   分解   选择   调用   存储   │
+│  信息   任务   工具   动作   经验   │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## 3. LangChain 框架
+## 2. Agent 核心组件
 
-### 3.1 什么是 LangChain
+### 2.1 规划（Planning）
 
-**LangChain**：开源的 LLM 应用开发框架，简化 AI Agent 开发。
-
-**核心模块：**
-- **Model I/O**：模型输入输出
-- **Data Connection**：数据连接
-- **Chains**：链式调用
-- **Agents**：智能体
-- **Memory**：记忆
-
-### 3.2 安装 LangChain
-
-```bash
-# Python
-pip install langchain
-pip install langchain-community
-pip install langchain-openai
-
-# Java（LangChain4j）
-<dependency>
-    <groupId>dev.langchain4j</groupId>
-    <artifactId>langchain4j</artifactId>
-    <version>0.27.1</version>
-</dependency>
-```
-
-### 3.3 核心组件
-
-#### Chains（链）
+**任务分解：**
 
 ```python
-from langchain import LLMChain, PromptTemplate
+# 复杂任务
+task = "开发一个用户管理系统"
 
-# 定义模板
-template = """
-你是一名{role}，请{task}
+# 分解为子任务
+subtasks = [
+    "1. 设计数据库表结构",
+    "2. 实现用户注册 API",
+    "3. 实现用户登录 API",
+    "4. 实现用户信息管理",
+    "5. 添加权限控制",
+    "6. 编写单元测试"
+]
+```
 
-要求：
-{requirements}
+**反思（Reflection）：**
+
+```python
+# 执行后反思
+reflection = """
+任务完成情况：
+- 已完成：用户注册、登录
+- 未完成：权限控制
+
+问题：
+- 密码加密方式需要改进
+- 缺少输入验证
+
+改进计划：
+1. 添加密码强度检查
+2. 实现 JWT 认证
+3. 添加速率限制
 """
-
-prompt = PromptTemplate(
-    template=template,
-    input_variables=["role", "task", "requirements"]
-)
-
-# 创建链
-chain = LLMChain(llm=llm, prompt=prompt)
-
-# 调用
-result = chain.run(
-    role="Java 架构师",
-    task="设计一个秒杀系统",
-    requirements="支持 10 万 QPS，防止超卖"
-)
 ```
 
-#### Agents（智能体）
+### 2.2 工具使用（Tool Use）
 
 ```python
-from langchain.agents import initialize_agent, Tool
-from langchain.agents import AgentType
+from langchain.agents import Tool
 
 # 定义工具
 tools = [
     Tool(
         name="Search",
-        func=search_function,
-        description="搜索互联网信息"
+        func=search_web,
+        description="搜索网络信息"
     ),
     Tool(
         name="Calculator",
-        func=calculate_function,
-        description="执行数学计算"
+        func=calculate,
+        description="数学计算"
+    ),
+    Tool(
+        name="Database",
+        func=query_db,
+        description="查询数据库"
     )
 ]
-
-# 初始化 Agent
-agent = initialize_agent(
-    tools,
-    llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=True
-)
-
-# 运行
-agent.run("今天北京天气如何？")
 ```
 
-#### Memory（记忆）
+### 2.3 记忆（Memory）
 
 ```python
 from langchain.memory import ConversationBufferMemory
 
-# 创建记忆
+# 短期记忆（对话历史）
 memory = ConversationBufferMemory(
     memory_key="chat_history",
     return_messages=True
 )
 
-# 使用记忆
-chain = LLMChain(
-    llm=llm,
-    prompt=prompt,
-    memory=memory
+# 长期记忆（向量数据库）
+from langchain.vectorstores import Chroma
+from langchain.embeddings import OpenAIEmbeddings
+
+vectorstore = Chroma(
+    embedding_function=OpenAIEmbeddings(),
+    persist_directory="./memory"
 )
 
-# 对话
-chain.run("你好")
-chain.run("我叫张三")
-chain.run("我记得我叫什么吗？")  # 可以记住之前的对话
+# 存储记忆
+vectorstore.add_texts(["用户喜欢 Python", "用户在北京工作"])
+
+# 检索记忆
+relevant = vectorstore.similarity_search("用户信息")
 ```
 
 ---
 
-## 4. Agent 开发
+## 3. LangChain Agent
 
-### 4.1 简单 Agent
+### 3.1 Agent 类型
 
 ```python
-from langchain.agents import load_tools
-from langchain.agents import initialize_agent
-from langchain_openai import ChatOpenAI
+from langchain.agents import initialize_agent, AgentType
 
-# 初始化 LLM
-llm = ChatOpenAI(
-    model="gpt-3.5-turbo",
-    temperature=0
+# Zero-shot React Description
+# 适合：简单任务，无需示例
+agent = initialize_agent(
+    tools, 
+    llm, 
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION
 )
 
-# 加载工具
-tools = load_tools(["serpapi", "llm-math"], llm=llm)
+# Conversational React Description
+# 适合：对话场景，有记忆
+agent = initialize_agent(
+    tools, 
+    llm, 
+    agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+    memory=memory
+)
+
+# Structured Chat Agent
+# 适合：复杂任务，结构化输出
+agent = initialize_agent(
+    tools, 
+    llm, 
+    agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION
+)
+```
+
+### 3.2 创建 Agent
+
+```python
+from langchain.agents import initialize_agent, Tool
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+
+# 初始化工具
+tools = [
+    Tool(
+        name="Search",
+        func=search_web,
+        description="搜索网络信息"
+    ),
+    Tool(
+        name="Calculator",
+        func=calculate,
+        description="数学计算"
+    )
+]
+
+# 初始化记忆
+memory = ConversationBufferMemory(
+    memory_key="chat_history",
+    return_messages=True
+)
+
+# 初始化模型
+llm = ChatOpenAI(model="gpt-4", temperature=0)
 
 # 创建 Agent
 agent = initialize_agent(
     tools,
     llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=True
+    agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+    memory=memory,
+    verbose=True  # 打印思考过程
 )
 
 # 使用
-agent.run("周杰伦的年龄是多少？他的年龄的平方根是多少？")
+response = agent.run("今天北京的天气怎么样？如果温度超过 30 度，计算 30 乘以 1.5")
 ```
 
-### 4.2 自定义工具
+### 3.3 思考过程
 
-```python
-from langchain.tools import tool
+```
+启用 verbose=True 后，可以看到 Agent 的思考过程：
 
-@tool
-def search_database(query: str) -> str:
-    """查询数据库信息"""
-    # 实现数据库查询逻辑
-    result = db.query(query)
-    return str(result)
+> Entering new AgentExecutor chain...
+Thought: 我需要先查询北京的天气
+Action: Search
+Action Input: "北京天气"
+Observation: 北京今天晴，温度 32°C
+Thought: 温度超过 30 度，需要计算
+Action: Calculator
+Action Input: 30 * 1.5
+Observation: 45.0
+Thought: 我现在知道答案了
+Final Answer: 北京今天天气晴朗，温度 32°C，超过 30 度。30 乘以 1.5 等于 45。
 
-@tool
-def send_email(to: str, subject: str, body: str) -> str:
-    """发送邮件"""
-    # 实现邮件发送逻辑
-    send(to, subject, body)
-    return "邮件发送成功"
-
-# 添加到 Agent
-tools = [search_database, send_email]
-agent = initialize_agent(tools, llm, agent=AgentType.CHAIN)
+> Finished chain.
 ```
 
-### 4.3 RAG Agent（检索增强）
+---
+
+## 4. AutoGen 多 Agent
+
+### 4.1 什么是 AutoGen
+
+**AutoGen** 是微软开源的多 Agent 对话框架，支持多角色协作完成任务。
+
+**核心概念：**
+
+| 概念 | 说明 |
+|------|------|
+| **Agent** | 智能代理，可对话、执行任务 |
+| **Conversation** | Agent 之间的对话 |
+| **Group Chat** | 多 Agent 群聊 |
+| **Tool Use** | Agent 调用工具 |
+
+### 4.2 创建 Agent
 
 ```python
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chains import RetrievalQA
+from autogen import AssistantAgent, UserProxyAgent
 
-# 加载知识库
-documents = load_documents("knowledge_base/")
+# 配置 LLM
+llm_config = {
+    "config_list": [
+        {
+            "model": "gpt-4",
+            "api_key": "your-api-key"
+        }
+    ],
+    "temperature": 0.7
+}
 
-# 创建向量存储
-embeddings = OpenAIEmbeddings()
-vectorstore = FAISS.from_documents(documents, embeddings)
-
-# 创建检索链
-qa_chain = RetrievalQA.from_chain_type(
-    llm,
-    retriever=vectorstore.as_retriever()
+# 创建助手 Agent
+assistant = AssistantAgent(
+    name="assistant",
+    llm_config=llm_config,
+    system_message="你是一个有帮助的 AI 助手。"
 )
 
-# 使用
-result = qa_chain.run("公司请假流程是什么？")
+# 创建用户代理（可执行代码）
+user_proxy = UserProxyAgent(
+    name="user_proxy",
+    human_input_mode="TERMINATE",  # 何时终止人工输入
+    max_consecutive_auto_reply=10,  # 最大自动回复次数
+    code_execution_config={
+        "work_dir": "coding",
+        "use_docker": False
+    }
+)
+
+# 开始对话
+user_proxy.initiate_chat(
+    assistant,
+    message="请帮我写一个 Python 脚本，计算斐波那契数列的前 20 项"
+)
 ```
 
-### 4.4 多 Agent 协作
+### 4.3 多角色协作
 
 ```python
-# 研究员 Agent
-researcher = Agent(
-    role="研究员",
-    goal="收集和分析信息",
-    tools=[search_tool],
-    llm=llm
+from autogen import GroupChat, GroupChatManager
+
+# 创建多个角色 Agent
+product_manager = AssistantAgent(
+    name="product_manager",
+    system_message="你是一位产品经理，负责定义产品需求。",
+    llm_config=llm_config
 )
 
-# 作家 Agent
-writer = Agent(
-    role="作家",
-    goal="撰写高质量文章",
-    tools=[write_tool],
-    llm=llm
+architect = AssistantAgent(
+    name="architect",
+    system_message="你是一位技术架构师，负责设计系统架构。",
+    llm_config=llm_config
 )
 
-# 编辑 Agent
-editor = Agent(
-    role="编辑",
-    goal="审核和优化内容",
-    tools=[review_tool],
-    llm=llm
+developer = AssistantAgent(
+    name="developer",
+    system_message="你是一位高级开发工程师，负责编写代码。",
+    llm_config=llm_config
 )
 
-# 协作流程
-def collaborative_task(topic):
-    # 研究员收集信息
-    research = researcher.run(f"研究{topic}相关信息")
-    
-    # 作家撰写文章
-    article = writer.run(f"根据以下信息写文章：{research}")
-    
-    # 编辑审核
-    final = editor.run(f"审核并优化：{article}")
-    
-    return final
+tester = AssistantAgent(
+    name="tester",
+    system_message="你是一位测试工程师，负责编写测试用例。",
+    llm_config=llm_config
+)
+
+# 创建群聊
+groupchat = GroupChat(
+    agents=[product_manager, architect, developer, tester],
+    messages=[],
+    max_round=20
+)
+
+# 创建群聊管理员
+manager = GroupChatManager(
+    groupchat=groupchat,
+    llm_config=llm_config
+)
+
+# 开始群聊
+user_proxy.initiate_chat(
+    manager,
+    message="请开发一个用户管理系统，包括注册、登录、权限管理功能"
+)
+```
+
+### 4.4 角色设定
+
+```python
+# 产品经理
+product_manager = AssistantAgent(
+    name="产品经理",
+    system_message="""
+你是一位资深产品经理，有 10 年互联网产品经验。
+
+职责：
+1. 分析用户需求
+2. 定义产品功能
+3. 编写产品文档
+4. 评估优先级
+
+输出格式：
+## 用户需求
+...
+
+## 功能列表
+1. ...
+2. ...
+
+## 优先级
+P0: ...
+P1: ...
+"""
+)
+
+# 架构师
+architect = AssistantAgent(
+    name="架构师",
+    system_message="""
+你是一位资深技术架构师，有 10 年系统设计经验。
+
+职责：
+1. 设计系统架构
+2. 选择技术栈
+3. 评估技术风险
+4. 制定技术规范
+
+输出格式：
+## 系统架构
+...
+
+## 技术栈
+- 前端：...
+- 后端：...
+- 数据库：...
+
+## 风险评估
+...
+"""
+)
 ```
 
 ---
 
 ## 5. 实战案例
 
-### 5.1 智能客服 Agent
+### 5.1 代码审查 Agent
 
 ```python
-class CustomerServiceAgent:
-    def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-3.5-turbo")
-        self.memory = ConversationBufferMemory()
-        
-        # 工具
-        tools = [
-            self.search_knowledge_base,
-            self.create_ticket,
-            self.check_order_status
-        ]
-        
-        self.agent = initialize_agent(tools, self.llm, agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION)
+from langchain.agents import initialize_agent, Tool
+from langchain.chat_models import ChatOpenAI
+
+# 定义代码审查工具
+@tool
+def analyze_code(code: str) -> str:
+    """分析代码质量"""
+    # 调用代码分析 API
+    issues = []
     
-    def search_knowledge_base(self, query: str) -> str:
-        """查询知识库"""
-        # 实现知识库检索
-        return knowledge_base.search(query)
+    # 检查安全问题
+    if "eval(" in code:
+        issues.append("⚠️ 使用 eval() 存在安全风险")
     
-    def create_ticket(self, issue: str) -> str:
-        """创建工单"""
-        # 实现工单创建
-        ticket_id = create_ticket(issue)
-        return f"工单创建成功，编号：{ticket_id}"
+    # 检查性能问题
+    if "for i in range(len(lst)):" in code:
+        issues.append("💡 建议使用 enumerate 替代 range(len())")
     
-    def check_order_status(self, order_id: str) -> str:
-        """查询订单状态"""
-        # 实现订单查询
-        status = db.query_order(order_id)
-        return f"订单状态：{status}"
+    # 检查规范问题
+    if len(code.split("\n")) > 100:
+        issues.append("📏 函数过长，建议拆分")
     
-    def chat(self, user_input: str) -> str:
-        """对话"""
-        return self.agent.run(user_input)
+    if not issues:
+        return "✅ 代码质量良好"
+    
+    return "\n".join(issues)
+
+@tool
+def suggest_fix(code: str, issue: str) -> str:
+    """提供修复建议"""
+    # 调用 LLM 生成修复建议
+    prompt = f"""
+代码：
+{code}
+
+问题：
+{issue}
+
+请提供修复后的代码和说明。
+"""
+    response = llm.predict(prompt)
+    return response
+
+# 创建审查 Agent
+tools = [analyze_code, suggest_fix]
+agent = initialize_agent(tools, llm, agent="zero-shot-react-description")
+
+# 使用
+code = """
+def get_user_data(user_id):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
+    return cursor.fetchone()
+"""
+
+response = agent.run(f"请审查以下代码：{code}")
 ```
 
 ### 5.2 数据分析 Agent
 
 ```python
-class DataAnalysisAgent:
-    def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4")
-        
-        # 工具
-        tools = [
-            self.query_database,
-            self.create_chart,
-            self.calculate_metrics
-        ]
-        
-        self.agent = initialize_agent(tools, self.llm, agent=AgentType.CHAIN)
-    
-    def query_database(self, sql: str) -> str:
-        """查询数据库"""
-        result = db.execute(sql)
-        return str(result)
-    
-    def create_chart(self, data: str, chart_type: str) -> str:
-        """生成图表"""
-        chart = charting.create(data, chart_type)
-        return chart.save_to_file()
-    
-    def calculate_metrics(self, data: str, metrics: list) -> str:
-        """计算指标"""
-        result = analytics.calculate(data, metrics)
-        return str(result)
-    
-    def analyze(self, request: str) -> str:
-        """数据分析"""
-        return self.agent.run(request)
+from langchain.agents import create_pandas_dataframe_agent
+import pandas as pd
+
+# 加载数据
+df = pd.read_csv("sales_data.csv")
+
+# 创建数据分析 Agent
+agent = create_pandas_dataframe_agent(
+    ChatOpenAI(model="gpt-4", temperature=0),
+    df,
+    verbose=True
+)
+
+# 使用
+agent.run("销售额最高的月份是哪个月？")
+agent.run("计算每个季度的平均销售额")
+agent.run("销售额和广告投入的相关性是多少？")
 ```
 
-### 5.3 代码助手 Agent
+### 5.3 客服 Agent
 
 ```python
-class CodeAssistantAgent:
-    def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4")
-        
-        # 工具
-        tools = [
-            self.generate_code,
-            self.explain_code,
-            self.debug_code,
-            self.refactor_code
-        ]
-        
-        self.agent = initialize_agent(tools, self.llm, agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION)
-    
-    def generate_code(self, description: str, language: str) -> str:
-        """生成代码"""
-        prompt = f"请用{language}实现：{description}"
-        return llm.generate(prompt)
-    
-    def explain_code(self, code: str) -> str:
-        """解释代码"""
-        prompt = f"请解释以下代码：\n{code}"
-        return llm.generate(prompt)
-    
-    def debug_code(self, code: str, error: str) -> str:
-        """调试代码"""
-        prompt = f"代码报错，请修复：\n代码：{code}\n错误：{error}"
-        return llm.generate(prompt)
-    
-    def refactor_code(self, code: str) -> str:
-        """重构代码"""
-        prompt = f"请优化以下代码：\n{code}"
-        return llm.generate(prompt)
+from langchain.agents import initialize_agent, Tool
+from langchain.memory import ConversationBufferMemory
+
+# 定义客服工具
+@tool
+def check_order_status(order_id: str) -> str:
+    """查询订单状态"""
+    # 调用订单系统 API
+    return "订单已发货，物流单号：SF123456789"
+
+@tool
+def process_return(order_id: str, reason: str) -> str:
+    """处理退货"""
+    # 调用退货系统 API
+    return "退货申请已提交，审核通过后会有快递员上门取件"
+
+@tool
+def get_product_info(product_id: str) -> str:
+    """查询产品信息"""
+    # 调用产品系统 API
+    return "产品名称：XXX，价格：¥299，库存：50 件"
+
+@tool
+def check_warranty(product_id: str) -> str:
+    """查询保修信息"""
+    # 调用保修系统 API
+    return "保修期：1 年，剩余保修期：8 个月"
+
+# 创建客服 Agent
+tools = [check_order_status, process_return, get_product_info, check_warranty]
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+agent = initialize_agent(
+    tools,
+    llm,
+    agent="conversational-react-description",
+    memory=memory,
+    verbose=True
+)
+
+# 使用
+response = agent.run("我买的 product123 坏了，还在保修期内吗？")
 ```
 
 ---
 
-## 💡 学习建议
+## 6. 最佳实践
 
-1. **理解原理**：先理解 Agent 架构
-2. **学习框架**：掌握 LangChain 使用
-3. **实战练习**：从简单 Agent 开始
-4. **持续优化**：迭代改进 Agent 能力
+### 6.1 Agent 设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **单一职责** | 一个 Agent 专注于一个领域 |
+| **清晰角色** | 明确 Agent 的职责和边界 |
+| **有效工具** | 提供实用的工具函数 |
+| **适当记忆** | 根据场景选择记忆类型 |
+| **可控执行** | 限制自动执行次数 |
+
+### 6.2 调试技巧
+
+```python
+# 启用详细日志
+agent = initialize_agent(
+    tools,
+    llm,
+    agent="zero-shot-react-description",
+    verbose=True  # 打印思考过程
+)
+
+# 限制执行次数
+user_proxy = UserProxyAgent(
+    max_consecutive_auto_reply=5,  # 最多自动回复 5 次
+    human_input_mode="ALWAYS"      # 每次都询问用户
+)
+
+# 捕获错误
+try:
+    response = agent.run(task)
+except Exception as e:
+    print(f"Agent 执行失败：{e}")
+```
+
+### 6.3 性能优化
+
+```python
+# 缓存工具结果
+from functools import lru_cache
+
+@lru_cache(maxsize=100)
+def cached_search(query: str) -> str:
+    return search_web(query)
+
+# 异步执行
+async def async_agent_run(task: str):
+    tasks = [agent.run(subtask) for subtask in subtasks]
+    results = await asyncio.gather(*tasks)
+    return results
+
+# 批量处理
+def batch_process(items: list) -> list:
+    return [agent.run(item) for item in items]
+```
 
 ---
 
-## 📚 参考资料
+## 📝 练习题
 
-- [LangChain 官方文档](https://python.langchain.com/)
-- [LangChain4j（Java 版）](https://github.com/langchain4j/langchain4j)
-- [Awesome LangChain](https://github.com/kyrolabs/awesome-langchain)
+### 基础题
+
+1. **创建 Agent**：使用 LangChain 创建一个简单的问答 Agent
+
+2. **工具定义**：定义 3 个工具，让 Agent 可以根据问题选择使用
+
+3. **记忆配置**：为 Agent 添加对话记忆功能
+
+### 进阶题
+
+4. **多角色协作**：使用 AutoGen 创建 2 个角色 Agent 协作完成任务
+
+5. **代码审查 Agent**：实现一个完整的代码审查 Agent
+
+6. **综合练习**：设计一个智能客服系统，包含订单查询、产品咨询、售后处理等功能
 
 ---
 
-> 💡 **学习建议**：AI Agent 是未来趋势，建议：
-> 1. 理解 Agent 核心架构
-> 2. 掌握 LangChain 框架
-> 3. 实战开发简单 Agent
-> 4. 探索多 Agent 协作
+## 🔗 参考资料
+
+### 官方文档
+- [LangChain Agents](https://python.langchain.com/docs/modules/agents/)
+- [AutoGen 文档](https://microsoft.github.io/autogen/)
+
+### 学习资源
+- 🔗 [LangChain Agent 教程](https://python.langchain.com/docs/modules/agents/)
+- 🔗 [AutoGen GitHub](https://github.com/microsoft/autogen)
+- 📚 《Building AI Agents with LangChain》
+
+---
+
+## 📊 本章小结
+
+| 知识点 | 重要程度 | 掌握要求 |
+|--------|---------|---------|
+| Agent 架构 | ⭐⭐⭐⭐⭐ | 理解掌握 |
+| LangChain Agent | ⭐⭐⭐⭐⭐ | 熟练运用 |
+| AutoGen 多 Agent | ⭐⭐⭐⭐ | 理解掌握 |
+| 工具设计 | ⭐⭐⭐⭐⭐ | 熟练运用 |
+| 记忆系统 | ⭐⭐⭐⭐ | 理解掌握 |
+
+---
+
+**上一章：** [Function Calling](/ai/function-calling)  
+**下一章：** [LangChain 框架](/ai/langchain)
+
+**最后更新**：2026-03-12
