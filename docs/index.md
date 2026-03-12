@@ -31,9 +31,9 @@ import { ref } from 'vue'
 import { withBase } from 'vitepress'
 
 const stats = ref({
-  articles: 88,
-  categories: 10,
-  words: '15w+'
+  articles: 116,
+  categories: 24,
+  words: '30w+'
 })
 
 const recentPosts = ref([
