@@ -6,7 +6,7 @@ export default defineConfig({
   titleTemplate: ':title - 涛哥的技术博客',
   description: 'Java 研发工程师的工作和学习记录，涵盖 Java 基础、Spring 框架、Redis、消息队列、Elasticsearch、AI 应用开发等技术内容',
   head: [
-    ['meta', { name: 'keywords', content: 'Java,Spring,Redis,消息队列,Elasticsearch,AI，大模型，技术博客，后端开发' }],
+    ['meta', { name: 'keywords', content: 'Java,Spring,Redis，消息队列，Elasticsearch,AI，大模型，技术博客，后端开发' }],
     ['meta', { name: 'author', content: '涛哥' }],
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { name: 'viewport', content: 'width=device-width,initial-scale=1' }],
@@ -193,9 +193,12 @@ export default defineConfig({
         { text: '学习规划', link: '/about/plan' }
       ]
     },
+    // 社交链接
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/your-github' }
+      { icon: 'github', link: 'https://github.com/tao2tt' },
+      { icon: 'linkedin', link: 'https://www.linkedin.com/in/your-profile' },
     ],
+    // 页脚
     footer: {
       message: 'Released under the MIT License.',
       copyright: 'Copyright © 2026 涛哥'

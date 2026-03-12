@@ -1,0 +1,162 @@
+/**
+ * VitePress 自定义主题样式
+ * 用于覆盖默认主题颜色和样式
+ */
+
+:root {
+  /* 品牌色 - 蓝色系 */
+  --vp-c-brand: #3b82f6;
+  --vp-c-brand-light: #60a5fa;
+  --vp-c-brand-lighter: #93c5fd;
+  --vp-c-brand-dark: #2563eb;
+  --vp-c-brand-darker: #1d4ed8;
+
+  /* 主文字颜色 */
+  --vp-c-text-1: #1f2937;
+  --vp-c-text-2: #4b5563;
+  --vp-c-text-3: #9ca3af;
+
+  /* 背景色 */
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-soft: #f9fafb;
+  --vp-c-bg-alt: #f3f4f6;
+
+  /* 分割线 */
+  --vp-c-divider: #e5e7eb;
+
+  /* 代码块背景 */
+  --vp-code-block-bg: #1f2937;
+  --vp-code-color: #e5e7eb;
+}
+
+/* 深色模式 */
+.dark {
+  --vp-c-brand: #60a5fa;
+  --vp-c-brand-light: #93c5fd;
+  --vp-c-brand-lighter: #bfdbfe;
+  --vp-c-brand-dark: #3b82f6;
+  --vp-c-brand-darker: #2563eb;
+
+  --vp-c-text-1: #f9fafb;
+  --vp-c-text-2: #d1d5db;
+  --vp-c-text-3: #9ca3af;
+
+  --vp-c-bg: #111827;
+  --vp-c-bg-soft: #1f2937;
+  --vp-c-bg-alt: #374151;
+
+  --vp-c-divider: #374151;
+}
+
+/* 首页 Hero 区域优化 */
+.VPHero {
+  padding: 4rem 0;
+}
+
+.VPHero .name {
+  font-size: 3rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--vp-c-brand) 0%, var(--vp-c-brand-dark) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.VPHero .text {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.VPHero .tagline {
+  font-size: 1.1rem;
+  color: var(--vp-c-text-2);
+}
+
+/* 按钮样式 */
+.VPHero .action .VPButton {
+  padding: 0.75rem 2rem;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.VPHero .action .VPButton.brand {
+  background: linear-gradient(135deg, var(--vp-c-brand) 0%, var(--vp-c-brand-dark) 100%);
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+}
+
+.VPHero .action .VPButton.brand:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+}
+
+/* 特性卡片 */
+.VPFeatures .item {
+  border-radius: 12px;
+  transition: all 0.3s;
+  border: 1px solid var(--vp-c-divider);
+}
+
+.VPFeatures .item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  border-color: var(--vp-c-brand);
+}
+
+/* 导航栏 */
+.VPNav {
+  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.dark .VPNav {
+  background: rgba(17, 24, 39, 0.8);
+}
+
+/* 搜索框 */
+.DocSearch-Button {
+  border-radius: 8px !important;
+  border: 1px solid var(--vp-c-divider) !important;
+}
+
+/* 目录 */
+.VPDocOutline {
+  border-left: 1px solid var(--vp-c-divider);
+}
+
+/* 代码块优化 */
+div[class*='language-'] {
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* 表格样式 */
+table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+table th {
+  background: var(--vp-c-bg-soft);
+  font-weight: 600;
+}
+
+/* 链接悬停效果 */
+a:hover {
+  color: var(--vp-c-brand);
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .VPHero .name {
+    font-size: 2rem;
+  }
+  
+  .VPHero .text {
+    font-size: 1.2rem;
+  }
+  
+  .VPHero .tagline {
+    font-size: 1rem;
+  }
+}
