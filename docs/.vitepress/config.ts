@@ -3,7 +3,14 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   base: '/tao-blog/',
   title: '涛哥的技术博客',
-  description: 'Java 研发工程师的工作和学习记录',
+  titleTemplate: ':title - 涛哥的技术博客',
+  description: 'Java 研发工程师的工作和学习记录，涵盖 Java 基础、Spring 框架、Redis、消息队列、Elasticsearch、AI 应用开发等技术内容',
+  head: [
+    ['meta', { name: 'keywords', content: 'Java,Spring,Redis,消息队列,Elasticsearch,AI，大模型，技术博客，后端开发' }],
+    ['meta', { name: 'author', content: '涛哥' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['meta', { name: 'viewport', content: 'width=device-width,initial-scale=1' }],
+  ],
   markdown: {
     // 启用标题锚点
     anchor: {
@@ -12,7 +19,32 @@ export default defineConfig({
   },
   // 忽略死链检查（允许链接到未创建的页面）
   ignoreDeadLinks: true,
+  lastUpdated: true,
   themeConfig: {
+    // 启用本地搜索
+    search: {
+      provider: 'local',
+      options: {
+        locales: {
+          root: {
+            translations: {
+              button: {
+                buttonText: '搜索',
+                buttonAriaLabel: '搜索文档'
+              },
+              modal: {
+                noResultsText: '无法找到相关结果',
+                resetButtonTitle: '清除查询条件',
+                footer: {
+                  selectText: '选择',
+                  navigateText: '切换'
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     // 启用右侧目录
     outline: {
       level: [2, 3],
