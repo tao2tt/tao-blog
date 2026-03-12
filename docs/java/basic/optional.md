@@ -50,8 +50,8 @@ public String getUserName(User user) {
 
 ```java
 // Optional 是一个盒子，里面可能有值，也可能是空的
-Optional<String> optional = Optional.of("hello");  // 有值
-Optional<String> empty = Optional.empty();          // 空值
+Optional`String` optional = Optional.of("hello");  // 有值
+Optional`String` empty = Optional.empty();          // 空值
 ```
 
 ---
@@ -64,11 +64,11 @@ Optional<String> empty = Optional.empty();          // 空值
 
 ```java
 // ✅ 正确用法
-Optional<String> opt = Optional.of("hello");
+Optional`String` opt = Optional.of("hello");
 System.out.println(opt.get());  // hello
 
 // ❌ 错误用法
-// Optional<String> nullOpt = Optional.of(null);  // NullPointerException
+// Optional`String` nullOpt = Optional.of(null);  // NullPointerException
 ```
 
 ### 2.2 Optional.ofNullable()
@@ -79,10 +79,10 @@ System.out.println(opt.get());  // hello
 String value = getValue();  // 可能返回 null
 
 // ✅ 推荐用法
-Optional<String> opt = Optional.ofNullable(value);
+Optional`String` opt = Optional.ofNullable(value);
 
 // 等价于
-Optional<String> opt2 = (value != null) 
+Optional`String` opt2 = (value != null) 
     ? Optional.of(value) 
     : Optional.empty();
 ```
@@ -92,7 +92,7 @@ Optional<String> opt2 = (value != null)
 **创建空 Optional**
 
 ```java
-Optional<String> empty = Optional.empty();
+Optional`String` empty = Optional.empty();
 System.out.println(empty.isPresent());  // false
 ```
 
@@ -102,13 +102,13 @@ System.out.println(empty.isPresent());  // false
 /**
  * 推荐：方法返回 Optional 而不是 null
  */
-public Optional<User> findUserById(String id) {
+public Optional`User` findUserById(String id) {
     User user = userDao.findById(id);
     return Optional.ofNullable(user);
 }
 
 // 使用
-Optional<User> userOpt = findUserById("123");
+Optional`User` userOpt = findUserById("123");
 userOpt.ifPresent(user -> System.out.println(user.getName()));
 ```
 
@@ -121,7 +121,7 @@ userOpt.ifPresent(user -> System.out.println(user.getName()));
 **获取值，如果为空抛 NoSuchElementException**
 
 ```java
-Optional<String> opt = Optional.of("hello");
+Optional`String` opt = Optional.of("hello");
 
 // ✅ 安全用法
 if (opt.isPresent()) {
@@ -138,7 +138,7 @@ if (opt.isPresent()) {
 **如果为空，返回默认值**
 
 ```java
-Optional<String> opt = Optional.ofNullable(getValue());
+Optional`String` opt = Optional.ofNullable(getValue());
 
 // 如果为空，返回"默认值"
 String value = opt.orElse("默认值");
@@ -199,7 +199,7 @@ return opt.get();
 **判断是否有值**
 
 ```java
-Optional<String> opt = Optional.ofNullable(getValue());
+Optional`String` opt = Optional.ofNullable(getValue());
 
 if (opt.isPresent()) {
     System.out.println("有值：" + opt.get());
@@ -223,7 +223,7 @@ if (opt.isEmpty()) {
 **如果有值，执行 Consumer**
 
 ```java
-Optional<String> opt = Optional.ofNullable(getValue());
+Optional`String` opt = Optional.ofNullable(getValue());
 
 // 传统方式
 if (opt.isPresent()) {
@@ -257,21 +257,21 @@ opt.ifPresentOrElse(
 **转换值（一对一）**
 
 ```java
-Optional<String> opt = Optional.of("hello");
+Optional`String` opt = Optional.of("hello");
 
 // 转换为大写
-Optional<String> upper = opt.map(String::toUpperCase);
+Optional`String` upper = opt.map(String::toUpperCase);
 System.out.println(upper.orElse(""));  // HELLO
 
 // 链式调用
-Optional<Integer> length = opt
+Optional`Integer` length = opt
     .map(String::toUpperCase)
     .map(String::length);
 System.out.println(length.orElse(0));  // 5
 
 // null 安全：如果值为 null，返回空 Optional
-Optional<String> nullOpt = Optional.ofNullable(null);
-Optional<Integer> nullLength = nullOpt.map(String::length);
+Optional`String` nullOpt = Optional.ofNullable(null);
+Optional`Integer` nullLength = nullOpt.map(String::length);
 System.out.println(nullLength.isPresent());  // false
 ```
 
@@ -301,7 +301,7 @@ Optional<City> cityOpt = userOpt
     .flatMap(Address::getCity);
 
 // 获取城市名称
-Optional<String> cityName = userOpt
+Optional`String` cityName = userOpt
     .flatMap(User::getAddress)
     .flatMap(Address::getCity)
     .map(City::getName);
@@ -312,18 +312,18 @@ Optional<String> cityName = userOpt
 **过滤值**
 
 ```java
-Optional<Integer> opt = Optional.of(10);
+Optional`Integer` opt = Optional.of(10);
 
 // 过滤出大于 5 的值
-Optional<Integer> filtered = opt.filter(n -> n > 5);
+Optional`Integer` filtered = opt.filter(n -> n > 5);
 System.out.println(filtered.isPresent());  // true
 
 // 过滤出偶数
-Optional<Integer> even = opt.filter(n -> n % 2 == 0);
+Optional`Integer` even = opt.filter(n -> n % 2 == 0);
 System.out.println(even.orElse(0));  // 10
 
 // 链式调用
-Optional<Integer> result = opt
+Optional`Integer` result = opt
     .filter(n -> n > 5)
     .filter(n -> n % 2 == 0)
     .filter(n -> n < 20);
@@ -366,8 +366,8 @@ public String getDepartmentName(Employee employee) {
 ```java
 // Repository 层
 public interface UserRepository {
-    Optional<User> findById(String id);
-    Optional<User> findByEmail(String email);
+    Optional`User` findById(String id);
+    Optional`User` findByEmail(String email);
 }
 
 // Service 层
@@ -386,7 +386,7 @@ public class UserService {
     }
     
     // 查找用户，不存在创建新用户
-    public User getUserOrCreate(String id, Supplier<User> creator) {
+    public User getUserOrCreate(String id, Supplier`User` creator) {
         return userRepository.findById(id)
             .orElseGet(creator);
     }
@@ -421,7 +421,7 @@ class Config {
     }
     
     // 读取配置，转换为整数
-    public Optional<Integer> getInt(String key) {
+    public Optional`Integer` getInt(String key) {
         return Optional.ofNullable(properties.get(key))
             .map(Integer::parseInt);
     }
@@ -431,21 +431,21 @@ class Config {
 ### 6.4 Stream 与 Optional 结合
 
 ```java
-List<User> users = getUsers();
+List`User` users = getUsers();
 
 // 查找第一个成年用户
-Optional<User> firstAdult = users.stream()
+Optional`User` firstAdult = users.stream()
     .filter(user -> user.getAge() >= 18)
     .findFirst();
 
 // 获取所有成年用户的姓名
-List<String> adultNames = users.stream()
+List`String` adultNames = users.stream()
     .filter(user -> user.getAge() >= 18)
     .map(User::getName)
     .collect(Collectors.toList());
 
 // 查找最年长的用户
-Optional<User> oldest = users.stream()
+Optional`User` oldest = users.stream()
     .max(Comparator.comparingInt(User::getAge));
 
 // 计算平均年龄
@@ -462,7 +462,7 @@ OptionalDouble avgAge = users.stream()
 
 ```java
 // ✅ 作为方法返回值
-public Optional<User> findUser(String id) {
+public Optional`User` findUser(String id) {
     return Optional.ofNullable(userDao.findById(id));
 }
 
@@ -473,7 +473,7 @@ String result = Optional.ofNullable(value)
     .orElse("default");
 
 // ✅ 与 Stream 结合
-Optional<User> user = users.stream()
+Optional`User` user = users.stream()
     .filter(u -> u.getId().equals(id))
     .findFirst();
 ```
@@ -483,20 +483,20 @@ Optional<User> user = users.stream()
 ```java
 // ❌ 不要用 Optional 存储字段
 class User {
-    private Optional<String> name;  // ❌ 错误
+    private Optional`String` name;  // ❌ 错误
 }
 
 // ✅ 正确：字段可以是 null，方法返回 Optional
 class User {
     private String name;
     
-    public Optional<String> getName() {
+    public Optional`String` getName() {
         return Optional.ofNullable(name);
     }
 }
 
 // ❌ 不要用 Optional 作为方法参数
-public void process(Optional<String> value) {  // ❌ 错误
+public void process(Optional`String` value) {  // ❌ 错误
     // ...
 }
 
@@ -537,7 +537,7 @@ String config = opt.orElseGet(() -> loadConfigFromDatabase());
 
 2. **获取值**：使用 orElse、orElseGet、orElseThrow 获取 Optional 的值
 
-3. **转换**：使用 map 将 Optional<String> 转换为 Optional<Integer>（字符串长度）
+3. **转换**：使用 map 将 Optional`String` 转换为 Optional`Integer`（字符串长度）
 
 ### 进阶题
 
