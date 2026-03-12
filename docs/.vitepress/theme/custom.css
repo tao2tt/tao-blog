@@ -27,6 +27,8 @@
   /* 代码块背景 */
   --vp-code-block-bg: #1f2937;
   --vp-code-color: #e5e7eb;
+  /* 行内代码颜色 - 浅色背景下使用深色 */
+  --vp-code-font-weight: 500;
 }
 
 /* 深色模式 */
@@ -143,6 +145,32 @@
 div[class*='language-'] {
   border-radius: 12px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* 表格内的行内代码 - 确保在白色背景下可见 */
+table code {
+  color: #e11d48;
+  background: var(--vp-c-bg-soft);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+/* 通用行内代码样式优化 */
+:not(pre) > code {
+  color: #e11d48;
+  background: var(--vp-c-bg-soft);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+/* 深色模式下的行内代码 */
+.dark :not(pre) > code,
+.dark table code {
+  color: #fca5a5;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* 表格样式 */
