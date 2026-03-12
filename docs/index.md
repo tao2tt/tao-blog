@@ -31,20 +31,20 @@ import { ref } from 'vue'
 import { withBase } from 'vitepress'
 
 const stats = ref({
-  articles: 67,
-  categories: 8,
-  words: '10w+'
+  articles: 88,
+  categories: 10,
+  words: '15w+'
 })
 
 const recentPosts = ref([
-  { title: 'Java 核心语法', link: withBase('/java/basic/core'), date: '2026-03-11', category: 'Java 基础' },
-  { title: 'Java 集合框架', link: withBase('/java/basic/collections'), date: '2026-03-11', category: 'Java 基础' },
-  { title: '多线程与并发', link: withBase('/java/basic/concurrency'), date: '2026-03-11', category: 'Java 基础' },
-  { title: 'JVM 基础', link: withBase('/java/basic/jvm'), date: '2026-03-11', category: 'Java 基础' },
-  { title: 'Spring/SpringBoot', link: withBase('/java/advanced/spring'), date: '2026-03-11', category: 'Java 进阶' },
-  { title: 'Elasticsearch 实战', link: withBase('/java/advanced/es'), date: '2026-03-11', category: 'Java 进阶' },
-  { title: 'AI Agent', link: withBase('/ai/agent'), date: '2026-03-11', category: 'AI 应用' },
-  { title: '上线记录 2026-03-09', link: withBase('/deploy/2026/20260309'), date: '2026-03-09', category: '上线记录' },
+  { title: '数据分析助手项目', link: withBase('/ai/project-data-analyst'), date: '2026-03-12', category: 'AI 应用' },
+  { title: '代码助手项目', link: withBase('/ai/project-code-assistant'), date: '2026-03-12', category: 'AI 应用' },
+  { title: '智能客服项目', link: withBase('/ai/project-customer-service'), date: '2026-03-12', category: 'AI 应用' },
+  { title: '文档问答系统', link: withBase('/ai/rag-qa'), date: '2026-03-12', category: 'AI 应用' },
+  { title: '向量数据库', link: withBase('/ai/vector-db'), date: '2026-03-12', category: 'AI 应用' },
+  { title: 'RAG 基础', link: withBase('/ai/rag'), date: '2026-03-12', category: 'AI 应用' },
+  { title: 'AutoGen 多 Agent', link: withBase('/ai/autogen'), date: '2026-03-12', category: 'AI 应用' },
+  { title: 'LangChain 框架', link: withBase('/ai/langchain'), date: '2026-03-12', category: 'AI 应用' },
 ])
 </script>
 
