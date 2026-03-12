@@ -66,10 +66,43 @@ export default defineConfig({
     ],
     sidebar: {
       '/java/basic/': [
-        { text: 'Java 核心语法', link: '/java/basic/core' },
-        { text: '集合框架', link: '/java/basic/collections' },
-        { text: '多线程与并发', link: '/java/basic/concurrency' },
-        { text: 'JVM 基础', link: '/java/basic/jvm' }
+        {
+          text: '语言核心',
+          collapsed: false,
+          items: [
+            { text: 'Java 核心语法', link: '/java/basic/core' },
+            { text: '面向对象编程', link: '/java/basic/oop' },
+            { text: '泛型与注解', link: '/java/basic/generics-annotations' },
+            { text: 'Java 21 新特性', link: '/java/basic/java21' }
+          ]
+        },
+        {
+          text: '数据结构',
+          collapsed: false,
+          items: [
+            { text: '集合框架', link: '/java/basic/collections' },
+            { text: 'Stream API', link: '/java/basic/stream' },
+            { text: 'Optional 类', link: '/java/basic/optional' }
+          ]
+        },
+        {
+          text: '并发编程',
+          collapsed: false,
+          items: [
+            { text: '多线程基础', link: '/java/basic/concurrency' },
+            { text: 'JUC 并发包', link: '/java/basic/juc' },
+            { text: '线程池实战', link: '/java/basic/thread-pool' }
+          ]
+        },
+        {
+          text: 'JVM 核心',
+          collapsed: false,
+          items: [
+            { text: 'JVM 内存模型', link: '/java/basic/jvm' },
+            { text: '垃圾回收机制', link: '/java/basic/gc' },
+            { text: '类加载机制', link: '/java/basic/classloader' }
+          ]
+        }
       ],
       '/java/advanced/': [
         {
@@ -143,10 +176,51 @@ export default defineConfig({
         { text: '2026 年', link: '/deploy/2026/' }
       ],
       '/ai/': [
-        { text: 'AI 入门', link: '/ai/intro' },
-        { text: 'Prompt 工程', link: '/ai/prompt' },
-        { text: 'AI Agent', link: '/ai/agent' },
-        { text: '实战项目', link: '/ai/project' }
+        {
+          text: '基础入门',
+          collapsed: false,
+          items: [
+            { text: 'AI 入门', link: '/ai/intro' },
+            { text: '大模型基础', link: '/ai/llm-basics' },
+            { text: 'Python 快速上手', link: '/ai/python-basics' }
+          ]
+        },
+        {
+          text: 'Prompt 工程',
+          collapsed: false,
+          items: [
+            { text: 'Prompt 基础', link: '/ai/prompt' },
+            { text: '高级 Prompt 技巧', link: '/ai/prompt-advanced' },
+            { text: 'Function Calling', link: '/ai/function-calling' }
+          ]
+        },
+        {
+          text: 'AI Agent',
+          collapsed: false,
+          items: [
+            { text: 'Agent 架构', link: '/ai/agent' },
+            { text: 'LangChain 框架', link: '/ai/langchain' },
+            { text: 'AutoGen 多 Agent', link: '/ai/autogen' }
+          ]
+        },
+        {
+          text: 'RAG 实战',
+          collapsed: false,
+          items: [
+            { text: 'RAG 基础', link: '/ai/rag' },
+            { text: '向量数据库', link: '/ai/vector-db' },
+            { text: '文档问答系统', link: '/ai/rag-qa' }
+          ]
+        },
+        {
+          text: '项目实战',
+          collapsed: false,
+          items: [
+            { text: '智能客服', link: '/ai/project-customer-service' },
+            { text: '代码助手', link: '/ai/project-code-assistant' },
+            { text: '数据分析助手', link: '/ai/project-data-analyst' }
+          ]
+        }
       ],
       '/data-structure-algorithm/': [
         {
