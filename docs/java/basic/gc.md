@@ -528,7 +528,7 @@ G1 不区分 Minor GC 和 Major GC
 | **GCViewer** | 可视化 GC 日志 |
 | **GCEasy** | 在线分析（https://gceasy.io） |
 | **GCLog** | 开源分析工具 |
-| **JVM 自带** | jstat -gc <pid> |
+| **JVM 自带** | jstat -gc `pid` |
 
 ---
 
@@ -572,13 +572,13 @@ public void set(Object obj) {
 jps -l
 
 # 查看内存使用
-jstat -gc <pid> 1000 10  # 每秒输出一次，共 10 次
+jstat -gc `pid` 1000 10  # 每秒输出一次，共 10 次
 
 # 堆转储
-jmap -dump:format=b,file=heap.hprof <pid>
+jmap -dump:format=b,file=heap.hprof `pid`
 
 # 线程转储
-jstack <pid> > thread.dump
+jstack `pid` > thread.dump
 
 # 可视化工具
 jconsole    # 监控 JVM
@@ -593,7 +593,7 @@ jvisualvm   # 可视化分析
 
 1. 生成堆转储文件
    ```bash
-   jmap -dump:format=b,file=heap.hprof <pid>
+   jmap -dump:format=b,file=heap.hprof `pid`
    ```
 
 2. 用 MAT 打开 heap.hprof
