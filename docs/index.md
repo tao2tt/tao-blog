@@ -7,10 +7,10 @@ hero:
   actions:
     - theme: brand
       text: 开始阅读
-      link: /java/basic/core
+      link: /java/basic/core.md
     - theme: alt
       text: 关于我
-      link: /about/
+      link: /about/index.md
 features:
   - icon: ☕
     title: Java 基础
@@ -28,6 +28,7 @@ features:
 
 <script setup>
 import { ref } from 'vue'
+import { withBase } from 'vitepress'
 
 const stats = ref({
   articles: 67,
@@ -36,14 +37,14 @@ const stats = ref({
 })
 
 const recentPosts = ref([
-  { title: 'Java 核心语法', link: '/java/basic/core', date: '2026-03-11', category: 'Java 基础' },
-  { title: 'Java 集合框架', link: '/java/basic/collections', date: '2026-03-11', category: 'Java 基础' },
-  { title: '多线程与并发', link: '/java/basic/concurrency', date: '2026-03-11', category: 'Java 基础' },
-  { title: 'JVM 基础', link: '/java/basic/jvm', date: '2026-03-11', category: 'Java 基础' },
-  { title: 'Spring/SpringBoot', link: '/java/advanced/spring', date: '2026-03-11', category: 'Java 进阶' },
-  { title: 'Elasticsearch 实战', link: '/java/advanced/es', date: '2026-03-11', category: 'Java 进阶' },
-  { title: 'AI Agent', link: '/ai/agent', date: '2026-03-11', category: 'AI 应用' },
-  { title: '上线记录 2026-03-09', link: '/deploy/2026/20260309', date: '2026-03-09', category: '上线记录' },
+  { title: 'Java 核心语法', link: withBase('/java/basic/core'), date: '2026-03-11', category: 'Java 基础' },
+  { title: 'Java 集合框架', link: withBase('/java/basic/collections'), date: '2026-03-11', category: 'Java 基础' },
+  { title: '多线程与并发', link: withBase('/java/basic/concurrency'), date: '2026-03-11', category: 'Java 基础' },
+  { title: 'JVM 基础', link: withBase('/java/basic/jvm'), date: '2026-03-11', category: 'Java 基础' },
+  { title: 'Spring/SpringBoot', link: withBase('/java/advanced/spring'), date: '2026-03-11', category: 'Java 进阶' },
+  { title: 'Elasticsearch 实战', link: withBase('/java/advanced/es'), date: '2026-03-11', category: 'Java 进阶' },
+  { title: 'AI Agent', link: withBase('/ai/agent'), date: '2026-03-11', category: 'AI 应用' },
+  { title: '上线记录 2026-03-09', link: withBase('/deploy/2026/20260309'), date: '2026-03-09', category: '上线记录' },
 ])
 </script>
 
@@ -104,22 +105,22 @@ LLM 原理、Prompt 工程、AI Agent 开发
 ## 🔥 热门推荐
 
 <div class="featured-posts">
-  <a href="/java/basic/concurrency" class="featured-card">
+  <a :href="withBase('/java/basic/concurrency')" class="featured-card">
     <div class="card-icon">⚡</div>
     <div class="card-title">多线程与并发</div>
     <div class="card-desc">ThreadLocal、synchronized、AQS、线程池详解</div>
   </a>
-  <a href="/java/advanced/redis" class="featured-card">
+  <a :href="withBase('/java/advanced/redis')" class="featured-card">
     <div class="card-icon">🔴</div>
     <div class="card-title">Redis 核心</div>
     <div class="card-desc">数据结构、持久化、高可用、分布式锁</div>
   </a>
-  <a href="/java/advanced/es" class="featured-card">
+  <a :href="withBase('/java/advanced/es')" class="featured-card">
     <div class="card-icon">🔍</div>
     <div class="card-title">Elasticsearch 实战</div>
     <div class="card-desc">索引设计、查询优化、同步方案</div>
   </a>
-  <a href="/ai/agent" class="featured-card">
+  <a :href="withBase('/ai/agent')" class="featured-card">
     <div class="card-icon">🤖</div>
     <div class="card-title">AI Agent</div>
     <div class="card-desc">Agent 架构、工具调用、实战项目</div>

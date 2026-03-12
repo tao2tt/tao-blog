@@ -4,6 +4,8 @@ export default defineConfig({
   base: '/tao-blog/',
   srcDir: '.',
   outDir: '.vitepress/dist',
+  // 确保链接使用正确的 base 路径
+  cleanUrls: false,
   title: '涛哥的技术博客',
   titleTemplate: ':title - 涛哥的技术博客',
   description: 'Java 研发工程师的工作和学习记录，涵盖 Java 基础、Spring 框架、Redis、消息队列、Elasticsearch、AI 应用开发等技术内容',
