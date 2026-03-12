@@ -199,8 +199,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'Agent 架构', link: '/ai/agent' },
-            { text: 'LangChain 框架', link: '/ai/langchain' },
-            { text: 'AutoGen 多 Agent', link: '/ai/autogen' }
+            { text: 'LangChain 框架', link: '/ai/langchain' }
           ]
         },
         {
